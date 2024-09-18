@@ -541,7 +541,7 @@ class GHam:
                                                     self.diabatic_Ham[ ( lab1, lab2 ) ]  = self.te_inter_s * Ham_FCF.gen_FCF( l1  , i1 , self.LamECT ) * Ham_FCF.gen_FCF( 0 , m1 , self.LamCTG )
                                                     self.diabatic_Ham[ (lab2, lab1 )] = self.diabatic_Ham[ (lab1, lab2 )]
                                                 elif( i == m ):
-                                                    self.diabatic_Ham[ ( lab1, lab2 ) ]  = self.th_inter_s * Ham_FCF.gen_FCF( m1 , i1 + 1, self.LamECT ) * Ham_FCF.gen_FCF( 0 , l1 , self.LamCTG )
+                                                    self.diabatic_Ham[ ( lab1, lab2 ) ]  = self.th_inter_s * Ham_FCF.gen_FCF( m1 , i1 , self.LamECT ) * Ham_FCF.gen_FCF( 0 , l1 , self.LamCTG )
                                                     self.diabatic_Ham[ (lab2, lab1 )] = self.diabatic_Ham[ (lab1, lab2 )]
                                                 else:
                                                     self.diabatic_Ham[ ( lab1, lab2 ) ]  = 0.e0
