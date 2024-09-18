@@ -1,0 +1,34 @@
+# Access the parameters as dictionary keys
+Nchrom = parameters['geometry_parameters']['Nchrom']
+vibmax = parameters['geometry_parameters']['vibmax']
+theta = parameters['geometry_parameters']['theta']
+
+add_double = parameters["basis_set_options"]['add_double']
+add_tripple = parameters["basis_set_options"]['add_tripple']
+add_CTv = parameters["basis_set_options"]['add_CTv']
+add_CT = parameters["basis_set_options"]['add_CT']
+add_TP = parameters["basis_set_options"]['add_TP']
+add_TPv = parameters["basis_set_options"]['add_TPv']
+CT_inter_periodic = parameters["basis_set_options"]['CT_inter_periodic']
+JCou_inter_periodic = parameters["basis_set_options"]['JCou_inter_periodic']
+check_eigenvector = parameters["printing_options"]['check_eigenvector']
+debug = parameters["printing_options"]['debug']
+
+eV = parameters["Energy_unit_exchange"]['eV']
+vib_freq = parameters["Energy_unit_exchange"]['vib_freq']
+
+E_ex_s = parameters["Energy_setting"]['E_ex_s'] #Excat exciton energy in TDDFT or MBPT
+Del_LUMO = parameters["Energy_setting"]['Del_LUMO']
+Del_HOMO = parameters["Energy_setting"]['Del_HOMO']
+ESex_ref = parameters["Energy_setting"]['ESex_ref'] # singlet exciton energy in code
+K_exchange = parameters["Energy_setting"]['K_exchange']  #exchange energy, ETex_ref = ESex_ref + K_exchange (K<0 generally)
+JCou_inter = parameters["Energy_setting"]['JCou_inter']
+te_inter_s = parameters["Energy_setting"]['te_inter_s']
+th_inter_s = parameters["Energy_setting"]['th_inter_s']
+te_inter_t = parameters["Energy_setting"]['te_inter_t']
+th_inter_t = parameters["Energy_setting"]['th_inter_t']
+Sfactor = parameters["Energy_setting"]['Sfactor']
+VMU_inter=parameters["Energy_setting"]['VMU_inter']
+
+LamGE_S = parameters["huang_ryhs_factors"]['LamGE_S']
+LamGE_T = parameters["huang_ryhs_factors"]['LamGE_T']

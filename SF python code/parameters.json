@@ -1,0 +1,65 @@
+{
+    "geometry_parameters": {
+        "Nchrom": 6,
+        "vibmax": 4,
+		"theta": 30
+    },
+    "basis_set_options": {
+        "add_double": true,
+        "add_tripple": true,
+        "add_CTv": true,
+        "add_CT": true,
+		"add_TP": true,
+		"add_TPv": true,
+	    "CT_inter_periodic": true,
+	    "JCou_inter_periodic": true
+    },
+    "printing_options": {
+        "check_eigenvector": false,
+        "debug": false
+    },
+    "Energy_setting": {
+
+        "E_ex_s": 1.9,
+        "Del_LUMO": 0.0,
+        "Del_HOMO": 0.0,
+        "ESex_ref": 0.0,
+        "K_exchange": 0.15,
+        "JCou_inter": 0.3,
+        "te_inter_s": 0.221,
+        "th_inter_s": -0.214,
+        "te_inter_t": -0.337,
+        "th_inter_t": -0.337,
+        "Sfactor": 1.0,
+        "VMU_inter": 0.370
+    },
+	"Energy_unit_exchange":{
+		"eV": 8065.0,
+        "vib_freq": 1400.0
+	},	
+    "huang_ryhs_factors": {
+        "LamGE_S": 1.0,
+		"LamGE_T": 1.0
+    },
+	"Abs_plotting":{
+	"abs_freq_fac_switch": true,
+	"step": 5000,
+	"step_width": 0.002,
+	"le_sigma": 0.075,
+	"he_sigma": 0.095,
+    "wcut": 3.50,
+	"Nomalized":true
+	
+	}	,
+	"Emi_plotting":{
+	"calc_Emi": true,
+	"Emi_Temp_depen": true,
+	"emi_freq_fac_switch": true,
+	"emission_gamma": 6.9e-02,
+	"Initial_Temp": 1.0e-01,
+	"Temp_step": 1.5e02,
+	"TOT_N_Temp": 3,
+	"Kb": 8.617333262e-05
+	}	
+}
+
