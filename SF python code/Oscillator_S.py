@@ -41,7 +41,7 @@ class OSC:
         OSC_IBS = IBS()
         self.Index_single = OSC_IBS.arr_1p()
         OSC_FCF = FCF()
-
+        self.theta = np.divide(self.theta, 180 , dtype=float) * np.pi  ##change the angle into radius unit
         for i in range( 0 , self.kcount ):
             for l in range( 0 , self.Nchrom):
                 for l1 in range( 0 , self.vibmax + 1 ):

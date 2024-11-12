@@ -20,7 +20,8 @@ step_width = parameters["Abs_plotting"]['step_width']
 le_sigma = parameters["Abs_plotting"]['le_sigma']
 he_sigma = parameters["Abs_plotting"]['he_sigma']
 wcut = parameters["Abs_plotting"]['wcut']
-Nomalized = parameters["Abs_plotting"]['Nomalized']
+Normalized = parameters["Abs_plotting"]['Normalized']
+Abs_output = parameters["Abs_plotting"]['Abs_output']
 E_ex_s = parameters["Energy_setting"]['E_ex_s'] #Excat exciton energy in TDDFT or MBPT
 
 # Define HR_fac class
@@ -33,7 +34,7 @@ class Abs:
         self.evalue = evalue
         self.step = step
         self.step_width = step_width
-        self.Nomalized = Nomalized
+        self.Normalized = Normalized
         self.ABS_X = np.zeros( self.step , dtype=float )
         self.ABS_Y = np.zeros( self.step , dtype=float )
         self.ABS_TOTAL = np.zeros( self.step , dtype=float )
@@ -45,6 +46,7 @@ class Abs:
         self.OSC_X = OSC_X
         self.OSC_Y = OSC_Y
         self.mu = 0.e0
+        self.Abs_output=Abs_output
         
 
     def cal_ABS(self):
@@ -60,10 +62,21 @@ class Abs:
                 else:
                     self.ABS_X[i] = self.ABS_X[i] + self.OSC_X[j] * np.exp(-( ( self.x[i] - self.mu ) / self.he_sigma )**2 )  
                     self.ABS_Y[i] = self.ABS_Y[i] + self.OSC_Y[j] * np.exp(-( ( self.x[i] - self.mu ) / self.he_sigma )**2 )  
-            for i in range( 0 , self.step):
+                    
+        for i in range( 0 , self.step):
                 self.ABS_TOTAL[i] = self.ABS_X[i] + self.ABS_Y[i]
-                
+
+        if (self.Normalized):
+            max_value = np.max(self.ABS_TOTAL)
+            nor_abs = 1.0 / max_value 
+            self.ABS_TOTAL *= nor_abs
+
+
         print(f'The absortion is done')
         print(f'The dimenstion of ABS_TOTAL is' , np.shape(self.ABS_TOTAL) )
+        if (self.Abs_output):
+            data = np.column_stack((self.x, self.ABS_TOTAL))
+            np.savetxt('MY_ABS.dat', data, fmt='%.6f', delimiter='\t')
+
         return self.x, self.ABS_TOTAL 
         

@@ -12,10 +12,10 @@ with open('parameters.json') as ESI_f:
     vibmax = parameters['geometry_parameters']['vibmax']
     theta = parameters['geometry_parameters']['theta']
     LamGE_S = parameters["huang_ryhs_factors"]['LamGE_S']
-    calc_Emi = parameters['Emi_plotting']['calc_Emi']
+    calc_Emi = parameters["Emi_plotting"]['calc_Emi']
     add_double = parameters["basis_set_options"]['add_double']
     add_tripple = parameters["basis_set_options"]['add_tripple']
-
+    emi_OSC_check=parameters["Emi_plotting"]['emi_OSC_check']
 
 class EMI_OSC:
     def __init__( self, kcount , evect, evalue  ):
@@ -29,6 +29,7 @@ class EMI_OSC:
         self.LamGE_S = LamGE_S
         self.add_double = add_double
         self.add_tripple = add_tripple
+        self.emi_OSC_check = emi_OSC_check
         self.Emi_osci_stre_x = np.zeros( ( self.kcount , self.vibmax + 1 ) , dtype=float)
         self.Emi_osci_stre_y = np.zeros( ( self.kcount , self.vibmax + 1 ) , dtype=float)
 
@@ -38,6 +39,7 @@ class EMI_OSC:
         self.Index_single = EMI_IBS.arr_1p()
         self.Index_double = EMI_IBS.arr_2p()
         self.Index_tripple = EMI_IBS.arr_3p()
+        self.theta = np.divide(self.theta , 180 , dtype=float) * np.pi   ##change the angle into radius
         for i in range( 0 , self.kcount):
             ##Initialize all oscillator strengths to 0
             osemy = 0.0e0
@@ -193,5 +195,10 @@ class EMI_OSC:
 
                                                                     self.Emi_osci_stre_x[ i , l1 + m1 + n1 ] = self.Emi_osci_stre_x[ i , l1 + m1 + n1 ] + osemx **2 #I0-l1 + m1 - 1 + n1 - 1  l1 m1 n1 /=0 
                                                                     self.Emi_osci_stre_y[ i , l1 + m1 + n1 ] = self.Emi_osci_stre_y[ i , l1 + m1 + n1 ] + osemy **2 #I0-l1 + m1 - 1 + n1 - 1  l1 m1 n1  /= 0
-                
+## print out oscillator strength, if needed    
+        if ( self.emi_OSC_check ):
+            np.savetxt('EMI_OSC_X.txt', self.Emi_osci_stre_x, fmt='%4.6f', delimiter=' ')
+            np.savetxt('EMI_OSC_Y.txt', self.Emi_osci_stre_y, fmt='%4.6f', delimiter=' ')
+            print("Emission oscillator strength is omitted into txt files")
+
         return  self.Emi_osci_stre_x , self.Emi_osci_stre_y

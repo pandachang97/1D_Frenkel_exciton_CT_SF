@@ -56,6 +56,7 @@ class DEE:
         #self.evect = np.zeros( (self.kcount , self.kcount), dtype=float )
         ##diagonalization
         self.evalue.real, self.evect.real = np.linalg.eig(self.diabatic_Ham)
+        #self.evalue, self.evect = np.linalg.eigh(self.diabatic_Ham)
         end_time = tm.time()
         print(f'Time consumed by diagonalizing Hamiltonian is', end_time - start_time )
         # step 2.3, change energy unit into electronic voltage(eV) 
