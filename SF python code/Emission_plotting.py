@@ -88,7 +88,7 @@ class EMI_SP:
                     for i in range( 0 , num_1p):
                         den_sum = den_sum + ( self.evect[ i , min_index ] )**2
                         
-                    if ( den_sum > 2.5e-01):
+                    if ( den_sum > 4.5e-01):
                         print(f"Found a minimum value that meets the condition: {self.evalue[min_index]} at index {min_index}")
                         min_value_used = self.evalue[ min_index ]
                         break
