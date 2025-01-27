@@ -61,8 +61,8 @@ class OSC:
                 #print(f'the OSC_X is', self.OSC_X [ i ] )
                 self.OSC_Y[i] = np.multiply( ( E_ex_s + self.evalue[ i ] ) , ( self.TDM_Y[i]**2 ) , dtype=float )
             else:
-                self.OSC_X[i] = self.OSC_X[i] **2  
-                self.OSC_Y[i] = self.OSC_Y[i] **2  
+                self.OSC_X[i] = self.TDM_X[i] **2  
+                self.OSC_Y[i] = self.TDM_Y[i] **2  
                 
         print(f'The oscillater strength is done')
         return self.OSC_X , self.OSC_Y
@@ -95,6 +95,7 @@ class OSC:
                 self.OSC_Y[i] = self.OSC_Y[i] **2  
                 
         print(f'The SE oscillater strength is done')
+        np.savetxt('OSC_X_output.txt', self.OSC_X, fmt='%2.6f', delimiter=' ')
         return self.OSC_X , self.OSC_Y
 
     def cal_OSC_CT(self):

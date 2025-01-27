@@ -85,7 +85,7 @@ class EMI_SP:
                     #min_index = np.argmin(evalue_backup)
                     min_index = np.ndarray.argmin(evalue_backup)
                     den_sum =0.e0
-                    for i in range( 0 , num_1p):
+                    for i in range( 0 , num_1p + 1 ):
                         den_sum = den_sum + ( self.evect[ i , min_index ] )**2
                         
                     if ( den_sum > 4.5e-01):
@@ -127,7 +127,7 @@ class EMI_SP:
             tkelvin =  ( ktem ) * self.Temp_step  + self.Initial_Temp
             print(f'The temperature is', tkelvin)
             for i in range( 0 , self.kcount ):
-                if ( Number_of_Temp == 1 ):
+                if ( tkelvin == 0.00e0 ):
                     self.fun_Z[ ktem ] = 1.0e0
                 else:
                     self.fun_Z[ ktem ] = self.fun_Z[ ktem ] + self.BZ_fuc( i , tkelvin , min_singlet_ex )
@@ -154,7 +154,7 @@ class EMI_SP:
                 tkelvin = ( N_Temp ) * self.Temp_step  + self.Initial_Temp
                 
                 for i in range( 0 , self.step):
-                    self.x[i] = self.E_ex_s + np.multiply(self.step_width, i - self.step/2 , dtype=float)
+                    self.x[i] = self.E_ex_s + (i - self.step/2) * self.step_width  #np.multiply(self.step_width, i - self.step/2 , dtype=float)
                     for j in range( 0 , self.kcount):
                         if ( tkelvin == 0.0e00):
                             self.Bfac[j] = 1.0e0
@@ -189,7 +189,7 @@ class EMI_SP:
                 for i in range( 0 , self.step):
                     self.x[i] = self.E_ex_s + np.multiply(self.step_width, i - self.step/2 , dtype=float)
                     for j in range( 0 , self.kcount):
-                        if ( tkelvin <= 1.0e-1):
+                        if ( tkelvin == 0.0e0):
                             self.Bfac[j] = 1.0e0
                         else:
                             self.Bfac[j] = self.BZ_fuc( j , tkelvin , min_singlet_ex1 ) / self.Dis_Z[0]

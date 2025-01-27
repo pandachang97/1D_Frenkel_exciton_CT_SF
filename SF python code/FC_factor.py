@@ -24,8 +24,8 @@ class FCF:
                 D2 = math.factorial ( n - k)
                 C3 = math.factorial ( m - n + k )
                 DEN = C2 * D2 * C3
-                S1 = S1 + ((((-1)**(m-n+k))*(HR_F**((m-n+(2*k))/2.0))))
-                S1 = np.divide( S1, DEN, dtype=float )
+                S1 = S1 + ( ((((-1)**(m-n+k))*(HR_F**((m-n+(2*k))/2.0)))) /DEN)
+                #S1 = np.divide( S1, DEN, dtype=float )
                 ##print(f'S1 is' , S1 )
 
         self.FC_fv = C1*D1*np.exp( -1.0* (HR_F * 2.0 ) , dtype= float ) * S1

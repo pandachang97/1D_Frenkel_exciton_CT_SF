@@ -1,6 +1,6 @@
 {
     "geometry_parameters": {
-        "Nchrom": 4,
+        "Nchrom": 3,
         "vibmax": 4,
 		"theta": 0
     },
@@ -25,11 +25,11 @@
         "Del_HOMO": 0.0,
         "ESex_ref": 0.0,
         "K_exchange": -0.35,
-        "JCou_inter": 0.28,
-        "te_inter_s": 0.150,
+        "JCou_inter": 0.48,
+        "te_inter_s": 0.160,
         "th_inter_s": 0.150,
-        "te_inter_t": -0.170,
-        "th_inter_t": 0.170,
+        "te_inter_t": -0.050,
+        "th_inter_t": 0.050,
         "Sfactor": 1.0,
         "VMU_inter": 0.350
     },
@@ -49,7 +49,7 @@
 	"he_sigma": 0.120,
     "wcut": 2.40,
 	"Abs_output":true,
-	"Normalized":true
+	"Normalized":false
 	
 	}	,
 	"Emi_plotting":{
@@ -58,7 +58,7 @@
 	"emi_freq_fac_switch": true,
 	"emi_OSC_check": true,
 	"emi_Spec_check": true,
-	"emission_gamma": 9.5e-02,
+	"emission_gamma": 6.5e-02,
 	"Initial_Temp": 1.0e-02,
 	"Temp_step": 1.5e02,
 	"TOT_N_Temp": 3,

@@ -88,10 +88,10 @@ class EMI_OSC:
                                         if  l == j:
                                             continue
                                         else:
-                                            if l1 - 1 + j1  > self.vibmax:  ## here, l1 is used as the pure vibrational quanta in 2p states (l. l1 is also ground 1p state)
+                                            if l1 + 1 + j1 > self.vibmax:  ## here, l1 is used as the pure vibrational quanta in 2p states (l. l1 is also ground 1p state)
                                                 continue
                                             else:  
-                                                num_2p = EMI_IBS.order_2p( j , j1 , l , l1 - 1 ) 
+                                                num_2p = EMI_IBS.order_2p( j , j1 , l , l1  ) 
                                                 lab2 = self.Index_double[num_2p]
                                                 osemx = osemx + np.cos ( self.theta ) * self.evect[ lab2 , i ] * EMI_FC.gen_FCF( 0 , j1 , self.LamGE_S )
                                                 osemy = osemy + np.sin ( self.theta ) * self.evect[ lab2 , i ] * EMI_FC.gen_FCF( 0 , j1 , self.LamGE_S )  
@@ -117,7 +117,7 @@ class EMI_OSC:
                                             if (m1 == 0): 
                                                 continue
                                             else:  
-                                                if ( l1 + m1 > self.vibmax ):
+                                                if ( l1 + m1 + 1 > self.vibmax ):
                                                     continue
                                                 else:
                                                     osemy = 0.0e0
@@ -126,14 +126,14 @@ class EMI_OSC:
                                                     for j1 in range( 0 , self.vibmax + 1 ):
  #!! now, we use j1 to count the vibrational quanta of exciton
  #!! cases 1, j1 stays at N_chain5 and m position with j1 vibrational quanta                                                
-                                                        if (j1  + l1  <= self.vibmax):
-                                                            num_2p = EMI_IBS.order_2p( m , j1 , l , l1  ) 
+                                                        if ( j1  + l1 + 1 <= self.vibmax):
+                                                            num_2p = EMI_IBS.order_2p( m , j1 , l , l1 ) 
                                                             lab2 = self.Index_double[num_2p]
                                                             osemx = osemx + np.cos ( self.theta ) * self.evect[ lab2 , i ] * EMI_FC.gen_FCF( m1 , j1 , self.LamGE_S )
                                                             osemy = osemy + np.sin ( self.theta ) * self.evect[ lab2 , i ] * EMI_FC.gen_FCF( m1 , j1 , self.LamGE_S )   
 # !! case 2, j1 stays at N_chain4 and l position with j1 vibrational quanta
-                                                        if (  j1 + m1 <= self.vibmax ):
-                                                            num_2p = EMI_IBS.order_2p( l , j1 , m , m1 - 1 ) 
+                                                        if ( j1 + m1 + 1 <= self.vibmax ):
+                                                            num_2p = EMI_IBS.order_2p( l , j1 , m , m1 ) 
                                                             lab2 = self.Index_double[num_2p]
                                                             osemx = osemx + np.cos ( self.theta ) * self.evect[ lab2 , i ] * EMI_FC.gen_FCF( l1 , j1 , self.LamGE_S )
                                                             osemy = osemy + np.sin ( self.theta ) * self.evect[ lab2 , i ] * EMI_FC.gen_FCF( l1 , j1 , self.LamGE_S ) 
@@ -146,11 +146,11 @@ class EMI_OSC:
                                                                 if ( l == j or m == j ):
                                                                     continue
                                                                 else:
-                                                                    if ( j1 + m1 - 1 + l1 - 1 > self.vibmax ):
+                                                                    if ( j1 + m1 + 1 + l1 + 1 > self.vibmax ):
                                                                         continue
                                                                     else:
                                                                         if ( abs( l - j ) == 1 ): 
-                                                                            num_3p = EMI_IBS.order_3p( j , j1 , l, l1 - 1 , m, m1 - 1 )
+                                                                            num_3p = EMI_IBS.order_3p( j , j1 , l, l1 , m, m1 )
                                                                             lab2 = self.Index_tripple[num_3p]
                                                                             osemx = osemx + np.cos ( self.theta ) * self.evect[ lab2 , i ] * EMI_FC.gen_FCF( 0 , j1 , self.LamGE_S )
                                                                             osemy = osemy + np.sin ( self.theta ) * self.evect[ lab2 , i ] * EMI_FC.gen_FCF( 0 , j1 , self.LamGE_S ) 
@@ -180,7 +180,7 @@ class EMI_OSC:
                                                             if ( n1 == 0):
                                                                 continue
                                                             else:
-                                                                if l1 + m1 + 1 + n1 > self.vibmax:
+                                                                if l1 + m1 + 1 + n1 + 1 > self.vibmax:
                                                                     continue
                                                                 else:
                                                                     if ( ( abs( l - m ) == 1 ) ):
@@ -192,7 +192,9 @@ class EMI_OSC:
                                                                             continue
                                                                         else:
  #!! exciton stays at N5, m positon with j1 vibrational quanta                                                                                       
-                                                                            if ( j1  + l1  + n1  > self.vibmax ):
+                                                                            if ( j1  + l1 + 1 + n1 + 1 > self.vibmax ):
+                                                                                continue
+                                                                            else:
                                                                                 num_3p = EMI_IBS.order_3p(  l, l1, m, m1, n, n1 )
                                                                                 lab2 = self.Index_tripple[ num_3p ]  
                                                                                 osemx = osemx + np.cos ( self.theta ) * self.evect[ lab2 , i ] * EMI_FC.gen_FCF( 0 , j1 , self.LamGE_S )
