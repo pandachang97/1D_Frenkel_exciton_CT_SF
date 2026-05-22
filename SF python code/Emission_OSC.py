@@ -1,211 +1,242 @@
-import numpy as np
-import math
+"""Emission oscillator strengths for transitions from excited eigenstates to
+specific vibrational configurations of the electronic ground state.
+
+For each eigenstate alpha and each terminal vibrational sideband index s
+(meaning: the ground-state manifold with s total vibrational quanta distributed
+across sites in some way), this computes |<G_s | mu | alpha>|^2.
+
+The emission ground state |G_s> with s quanta can be realized in multiple ways:
+- s=0: all sites in vibrational ground state (one configuration)
+- s=l1 (l1 >= 1): one site has l1 quanta, others have zero (multiple sites possible)
+- s=l1+m1 (l1, m1 >= 1): two sites carry quanta (the "2P ground" sideband)
+- s=l1+m1+n1: three sites (the "3P ground" sideband)
+
+The emission to each configuration is computed and added incoherently to the
+sideband index s = l1 + m1 + n1 (or 0 if all are zero). This matches the
+Fortran reference.
+
+Only 1P-block coefficients of the eigenvector enter the 0-0 line, but higher
+sidebands pick up contributions from 2P/3P basis components (vibrationally hot
+spectators that overlap with the ground manifold's vibrational quanta). CT, CTv,
+TP, TPv basis states all have <G|mu|n> = 0 in the electric-dipole approximation
+and contribute zero directly to emission (though they contribute indirectly via
+their admixture into the eigenstate's 1P/2P/3P amplitudes).
+"""
+
 import json
+import numpy as np
+
 from basis_set import IBS
 from FC_factor import FCF
 
-##function to calculate emission oscillator strength
 
-with open('parameters.json') as ESI_f:
-    parameters = json.load(ESI_f)
-    Nchrom = parameters['geometry_parameters']['Nchrom']
-    vibmax = parameters['geometry_parameters']['vibmax']
-    theta = parameters['geometry_parameters']['theta']
-    LamGE_S = parameters["huang_ryhs_factors"]['LamGE_S']
-    calc_Emi = parameters["Emi_plotting"]['calc_Emi']
-    add_double = parameters["basis_set_options"]['add_double']
-    add_tripple = parameters["basis_set_options"]['add_tripple']
-    emi_OSC_check=parameters["Emi_plotting"]['emi_OSC_check']
+with open('parameters.json') as _f:
+    _params = json.load(_f)
+
+_NCHROM     = _params['geometry_parameters']['Nchrom']
+_VIBMAX     = _params['geometry_parameters']['vibmax']
+_THETA      = _params['geometry_parameters']['theta']
+_LAM_GE_S   = _params['huang_ryhs_factors']['LamGE_S']
+_ADD_DOUBLE = _params['basis_set_options']['add_double']
+_ADD_TRIPPLE = _params['basis_set_options']['add_tripple']
+_EMI_CHECK  = _params['Emi_plotting']['emi_OSC_check']
+
 
 class EMI_OSC:
-    def __init__( self, kcount , evect, evalue  ):
-        self.calc_Emi = calc_Emi
-        self.vibmax = vibmax
-        self.Nchrom = Nchrom
+    """Compute emission oscillator strengths to all vibrational sidebands.
+
+    Parameters
+    ----------
+    kcount : int
+        Total Hamiltonian dimension.
+    evect : (kcount, kcount) ndarray
+        Eigenvectors as columns.
+    evalue : (kcount,) ndarray
+        Eigenvalues in eV.
+    """
+
+    def __init__(self, kcount, evect, evalue):
         self.kcount = kcount
-        self.evect = evect
+        self.evect  = evect
         self.evalue = evalue
-        self.theta =theta
-        self.LamGE_S = LamGE_S
-        self.add_double = add_double
-        self.add_tripple = add_tripple
-        self.emi_OSC_check = emi_OSC_check
-        self.Emi_osci_stre_x = np.zeros( ( self.kcount , self.vibmax + 1 ) , dtype=float)
-        self.Emi_osci_stre_y = np.zeros( ( self.kcount , self.vibmax + 1 ) , dtype=float)
 
-    def gen_EMI_OSC( self ): 
-        EMI_IBS = IBS()
-        EMI_FC = FCF()
-        self.Index_single = EMI_IBS.arr_1p()
-        self.Index_double = EMI_IBS.arr_2p()
-        self.Index_tripple = EMI_IBS.arr_3p()
-        self.theta = np.divide(self.theta , 180 , dtype=float) * np.pi   ##change the angle into radius
-        for i in range( 0 , self.kcount):
-            ##Initialize all oscillator strengths to 0
-            osemy = 0.0e0
-            osemx = 0.0e0
-#---------- Emission to ground states with 0 vib quanta in all sites!---------------------
-#      1p - 0  here, 1p is the 1p states in ground state and the exciton state
-#      must be on the same site, so I just use only one set of running labels 
-#-----------------------------------------------------------------------------------------
-            for l in range( 0 , self.Nchrom  ):
-                for l1 in range( 0 , self.vibmax + 1 ):
-                    num_1p = EMI_IBS.order_1p( l , l1 )
-                    lab2 = self.Index_single[num_1p]  
+        self.Nchrom      = _NCHROM
+        self.vibmax      = _VIBMAX
+        self.theta_deg   = _THETA          # never mutated
+        self.lam         = _LAM_GE_S
+        self.add_double  = _ADD_DOUBLE
+        self.add_tripple = _ADD_TRIPPLE
+        self.emi_check   = _EMI_CHECK
 
-                    osemx = osemx + np.cos ( self.theta ) * self.evect[ lab2 , i ] * EMI_FC.gen_FCF( 0 , l1 , self.LamGE_S )
-                    osemy = osemy + np.sin ( self.theta ) * self.evect[ lab2 , i ] * EMI_FC.gen_FCF( 0 , l1 , self.LamGE_S )
+        # Build basis indexing in the same order as Hamiltonian.py:
+        # 1P, then 2P (if enabled), then 3P (if enabled). Higher-spin /
+        # CT / TP blocks live above these but are never accessed here
+        # since their <G|mu|n> is zero.
+        self._ibs = IBS()
+        self.Index_single = self._ibs.arr_1p()
+        if self.add_double:
+            self.Index_double = self._ibs.arr_2p()
+        if self.add_tripple:
+            self.Index_tripple = self._ibs.arr_3p()
 
-            self.Emi_osci_stre_x[ i , 0 ] = osemx **2 #I0-0
-            self.Emi_osci_stre_y[ i , 0 ] = osemy **2 #I0-0
-#--------- Emission to ground state with 1 site with vibrational quanta!-----------------
-#  1p - 1p (with at least 1 vib in ground state) exciton 1p gruond 1p 
-# Thus, they must share the same chromophore
-#  2p - 1p: ground 1p exciton 1p, thus, the exciton matches a ground state
-#  without vibrational quanta, the remainning pure vibrational site in exciton matches
-# the 1p ground state site.   
-#-----------------------------------------------------------------------------------------
-#sum over ground vibrational sites 
-            # 1p -1p states (at least 1 vib quanta in ground state)    
-            if (self.vibmax > 0 ):
-                for l in range( 0 , self.Nchrom  ):
-                    for l1 in range( 0 , self.vibmax + 1 ): 
-                        if ( l1 == 0 ):  ## we have already considered v=0 case in previous case
-                            continue
-                        else:
-                            osemy = 0.0e0
-                            osemx = 0.0e0   
-                            for m1 in range( 0 , self.vibmax + 1 ):  #vibrational quanta of exciton, ignoring the exciton position
-                                num_1p = EMI_IBS.order_1p( l , m1 )
-                                lab2= self.Index_single[num_1p] 
-                                osemx = osemx + np.cos ( self.theta ) * self.evect[ lab2 , i ] * EMI_FC.gen_FCF( l1 , m1 , self.LamGE_S )
-                                osemy = osemy + np.sin ( self.theta ) * self.evect[ lab2 , i ] * EMI_FC.gen_FCF( l1 , m1 , self.LamGE_S )   
-    #2p - 1p, the vibrational is the same as 1p in the ground state, which are  l and l1.                             
-                            if (self.add_double):
-    #        !! now, I use j and j1 to index exciton position and its vibrational quanta
-                                for j in range( 0 , self.Nchrom ):
-                                    for j1 in range( 0 , self.vibmax + 1 ):
-                                        if  l == j:
+        # Cache FC factors: fc[m, n] = <m | n>_FC for the same lambda
+        fcf = FCF()
+        V = self.vibmax + 1
+        self._fc = np.array(
+            [[fcf.gen_FCF(m, n, self.lam) for n in range(V)] for m in range(V)],
+            dtype=float,
+        )
+
+        # Output: (kcount, vibmax+1) — second index s = sideband (0-s emission)
+        self.Emi_osci_stre_x = np.zeros((self.kcount, V), dtype=float)
+        self.Emi_osci_stre_y = np.zeros((self.kcount, V), dtype=float)
+
+    # ------------------------------------------------------------------
+    # Public API
+    # ------------------------------------------------------------------
+
+    def gen_EMI_OSC(self):
+        """Compute |mu_X|^2 and |mu_Y|^2 for every eigenstate and sideband."""
+        theta_rad = np.deg2rad(self.theta_deg)
+        cos_t = np.cos(theta_rad)
+        sin_t = np.sin(theta_rad)
+
+        # ---- 0-0 sideband: emission to G with zero vibrations everywhere ----
+        # Only 1P basis states contribute. proj_0[lab(l, l1)] = FC(0, l1).
+        proj_0 = np.zeros(self.kcount, dtype=float)
+        for l in range(self.Nchrom):
+            for l1 in range(self.vibmax + 1):
+                lab = self.Index_single[self._ibs.order_1p(l, l1)]
+                proj_0[lab] = self._fc[0, l1]
+        mu_0 = proj_0 @ self.evect                              # (kcount,)
+        self.Emi_osci_stre_x[:, 0] = (cos_t * mu_0) ** 2
+        self.Emi_osci_stre_y[:, 0] = (sin_t * mu_0) ** 2
+
+        # ---- 0-s sidebands for s >= 1, one site carries s quanta ----
+        # The terminal ground configuration has site l with s = l1 quanta,
+        # all other sites in vibrational ground. Contributions come from:
+        #   (a) 1P amplitude at (l, m1) with FC(l1, m1)
+        #   (b) 2P amplitude at (j, j1; l, l1) with FC(0, j1)  -- 2P-1P channel
+        # Each terminal configuration is one site x s value; loop over l.
+        if self.vibmax > 0:
+            for l in range(self.Nchrom):
+                for s in range(1, self.vibmax + 1):
+                    proj = np.zeros(self.kcount, dtype=float)
+                    # (a) 1P part: exciton at site l, any vibrations m1
+                    for m1 in range(self.vibmax + 1):
+                        lab = self.Index_single[self._ibs.order_1p(l, m1)]
+                        proj[lab] = self._fc[s, m1]
+                    # (b) 2P part: exciton at site j != l with j1 quanta;
+                    #     spectator at site l with offset = s-1 (physical s).
+                    if self.add_double:
+                        for j in range(self.Nchrom):
+                            if j == l:
+                                continue
+                            for j1 in range(self.vibmax + 1):
+                                # Physical constraint: exciton (j1) + spectator (s) <= vibmax
+                                if j1 + s > self.vibmax:
+                                    continue
+                                lab = self.Index_double[
+                                    self._ibs.order_2p(j, j1, l, s - 1)
+                                ]
+                                proj[lab] = self._fc[0, j1]
+                    mu = proj @ self.evect                      # (kcount,)
+                    self.Emi_osci_stre_x[:, s] += (cos_t * mu) ** 2
+                    self.Emi_osci_stre_y[:, s] += (sin_t * mu) ** 2
+
+        # ---- 0-(l1+m1) sidebands: two sites carry quanta ----
+        # Terminal: site l with l1>=1, site m with m1>=1 (l < m to avoid
+        # double-counting). Sideband index s = l1 + m1.
+        # Contributions:
+        #   (i)  2P amplitude with exciton at m, spectator at l, with FC(m1, j1)
+        #   (ii) 2P amplitude with exciton at l, spectator at m, with FC(l1, j1)
+        #   (iii) 3P amplitude with exciton at neighbor j of l, two spectators
+        if self.add_double:
+            for l in range(self.Nchrom):
+                for m in range(self.Nchrom):
+                    if l >= m:
+                        continue
+                    for l1 in range(1, self.vibmax + 1):
+                        for m1 in range(1, self.vibmax + 1):
+                            if l1 + m1 > self.vibmax:
+                                continue
+                            s = l1 + m1
+                            proj = np.zeros(self.kcount, dtype=float)
+                            # (i) exciton at m with j1, spectator at l with l1
+                            for j1 in range(self.vibmax + 1):
+                                if j1 + l1 > self.vibmax:
+                                    continue
+                                lab = self.Index_double[
+                                    self._ibs.order_2p(m, j1, l, l1 - 1)
+                                ]
+                                proj[lab] += self._fc[m1, j1]
+                            # (ii) exciton at l with j1, spectator at m with m1
+                            for j1 in range(self.vibmax + 1):
+                                if j1 + m1 > self.vibmax:
+                                    continue
+                                lab = self.Index_double[
+                                    self._ibs.order_2p(l, j1, m, m1 - 1)
+                                ]
+                                proj[lab] += self._fc[l1, j1]
+                            # (iii) 3P amplitude with exciton at j, neighbor of l,
+                            # and two spectators at l (l1) and m (m1)
+                            if self.add_tripple:
+                                for j in range(self.Nchrom):
+                                    if j == l or j == m:
+                                        continue
+                                    if abs(l - j) != 1:        # nearest-neighbor only
+                                        continue
+                                    for j1 in range(self.vibmax + 1):
+                                        if j1 + l1 + m1 > self.vibmax:
                                             continue
-                                        else:
-                                            if l1 + 1 + j1 > self.vibmax:  ## here, l1 is used as the pure vibrational quanta in 2p states (l. l1 is also ground 1p state)
-                                                continue
-                                            else:  
-                                                num_2p = EMI_IBS.order_2p( j , j1 , l , l1  ) 
-                                                lab2 = self.Index_double[num_2p]
-                                                osemx = osemx + np.cos ( self.theta ) * self.evect[ lab2 , i ] * EMI_FC.gen_FCF( 0 , j1 , self.LamGE_S )
-                                                osemy = osemy + np.sin ( self.theta ) * self.evect[ lab2 , i ] * EMI_FC.gen_FCF( 0 , j1 , self.LamGE_S )  
-                                                                                                                 
-                            self.Emi_osci_stre_x[ i , l1 ] = self.Emi_osci_stre_x[ i , l1 ] + osemx **2 #I0-l1 l1 /=0 
-                            self.Emi_osci_stre_y[ i , l1 ] = self.Emi_osci_stre_y[ i , l1 ] + osemy **2 #I0-l1 l1 /= 0
-# Ground 2p states        
-#Here, neither l1 nor m1 could be 1, otherwise, it will become 1p or no vibration state, which we have considered them in the previous case.
-                if ( self.add_double ):
-#        now, I use N_chain2, j and j1 to index exciton position and its vibrational quanta
-                    for l in range( 0 , self.Nchrom ):
-                        for l1 in range( 0 , self.vibmax + 1 ):
-                            if ( l1 == 0 ):
-                                continue
-                            else:
-                            
-                                for m in range( 0 , self.Nchrom ):
-                                    if  l >= m:
+                                        lab = self.Index_tripple[
+                                            self._ibs.order_3p(
+                                                j, j1, l, l1 - 1, m, m1 - 1
+                                            )
+                                        ]
+                                        proj[lab] += self._fc[0, j1]
+                            mu = proj @ self.evect
+                            self.Emi_osci_stre_x[:, s] += (cos_t * mu) ** 2
+                            self.Emi_osci_stre_y[:, s] += (sin_t * mu) ** 2
+
+        # ---- 0-(l1+m1+n1) sidebands: three sites carry quanta ----
+        # Terminal: ordered triple l < m < n with l1, m1, n1 >= 1.
+        # Exciton sits at the middle site m (nearest-neighbor approx).
+        if self.add_tripple:
+            for l in range(self.Nchrom):
+                for m in range(self.Nchrom):
+                    if l >= m:
+                        continue
+                    for n in range(self.Nchrom):
+                        if m >= n:
+                            continue
+                        if abs(l - m) != 1:                    # m must be neighbor of l
+                            continue
+                        for l1 in range(1, self.vibmax + 1):
+                            for m1 in range(1, self.vibmax + 1):
+                                for n1 in range(1, self.vibmax + 1):
+                                    if l1 + m1 + n1 > self.vibmax:
                                         continue
-                                    else:
-                                        for m1 in range( 0 , self.vibmax + 1 ):
-#! Cannot be on the same chromphore, but we also do not want to overcount (the second site always has to be to the right of the first)
-                                            if (m1 == 0): 
-                                                continue
-                                            else:  
-                                                if ( l1 + m1 + 1 > self.vibmax ):
-                                                    continue
-                                                else:
-                                                    osemy = 0.0e0
-                                                    osemx = 0.0e0                                              
-#!Next we will not count the positon of exciton, because it will be the same as either with the first 1p ground state or with the second 1p ground state    
-                                                    for j1 in range( 0 , self.vibmax + 1 ):
- #!! now, we use j1 to count the vibrational quanta of exciton
- #!! cases 1, j1 stays at N_chain5 and m position with j1 vibrational quanta                                                
-                                                        if ( j1  + l1 + 1 <= self.vibmax):
-                                                            num_2p = EMI_IBS.order_2p( m , j1 , l , l1 ) 
-                                                            lab2 = self.Index_double[num_2p]
-                                                            osemx = osemx + np.cos ( self.theta ) * self.evect[ lab2 , i ] * EMI_FC.gen_FCF( m1 , j1 , self.LamGE_S )
-                                                            osemy = osemy + np.sin ( self.theta ) * self.evect[ lab2 , i ] * EMI_FC.gen_FCF( m1 , j1 , self.LamGE_S )   
-# !! case 2, j1 stays at N_chain4 and l position with j1 vibrational quanta
-                                                        if ( j1 + m1 + 1 <= self.vibmax ):
-                                                            num_2p = EMI_IBS.order_2p( l , j1 , m , m1 ) 
-                                                            lab2 = self.Index_double[num_2p]
-                                                            osemx = osemx + np.cos ( self.theta ) * self.evect[ lab2 , i ] * EMI_FC.gen_FCF( l1 , j1 , self.LamGE_S )
-                                                            osemy = osemy + np.sin ( self.theta ) * self.evect[ lab2 , i ] * EMI_FC.gen_FCF( l1 , j1 , self.LamGE_S ) 
+                                    s = l1 + m1 + n1
+                                    proj = np.zeros(self.kcount, dtype=float)
+                                    for j1 in range(self.vibmax + 1):
+                                        if j1 + l1 + n1 > self.vibmax:
+                                            continue
+                                        lab = self.Index_tripple[
+                                            self._ibs.order_3p(
+                                                m, j1, l, l1 - 1, n, n1 - 1
+                                            )
+                                        ]
+                                        proj[lab] += self._fc[m1, j1]
+                                    mu = proj @ self.evect
+                                    self.Emi_osci_stre_x[:, s] += (cos_t * mu) ** 2
+                                    self.Emi_osci_stre_y[:, s] += (sin_t * mu) ** 2
 
-                                                    if ( self.add_tripple ):
-#!! Here, we count the position and vibrational quanta of exciton in 3p states. 
-## The other two pure vibrational states of 3p states in excitation state are the same as N_chain4 l l1 and N_chain4 m m1. 
-                                                        for j in range ( 0 , self.Nchrom ):
-                                                            for j1 in range ( 0 , self.vibmax + 1 ):
-                                                                if ( l == j or m == j ):
-                                                                    continue
-                                                                else:
-                                                                    if ( j1 + m1 + 1 + l1 + 1 > self.vibmax ):
-                                                                        continue
-                                                                    else:
-                                                                        if ( abs( l - j ) == 1 ): 
-                                                                            num_3p = EMI_IBS.order_3p( j , j1 , l, l1 , m, m1 )
-                                                                            lab2 = self.Index_tripple[num_3p]
-                                                                            osemx = osemx + np.cos ( self.theta ) * self.evect[ lab2 , i ] * EMI_FC.gen_FCF( 0 , j1 , self.LamGE_S )
-                                                                            osemy = osemy + np.sin ( self.theta ) * self.evect[ lab2 , i ] * EMI_FC.gen_FCF( 0 , j1 , self.LamGE_S ) 
-# !! Notice that l1 + m1 - 1 is 3 at least, that means the 2p ground state contribute to I0-2 or higher states only. 
-                                                    self.Emi_osci_stre_x[ i , l1 + m1 ] = self.Emi_osci_stre_x[ i , l1  + m1 ] + osemx **2 #I0-l1 + m1 - 1  l1 m1 /=0 
-                                                    self.Emi_osci_stre_y[ i , l1 + m1 ] = self.Emi_osci_stre_y[ i , l1  + m1 ] + osemy **2 #I0-l1 + m1 - 1  l1 m1 /= 0
-#!! 3p ground state
-                if ( self.add_tripple ):
-                    for l in range( 0 , self.Nchrom ):
-                        for l1 in range( 0 , self.vibmax + 1 ):
-                            if ( l1 == 0):
-                                continue
-                            else:
-                                for m in range( 0 , self.Nchrom ):
-                                    if ( l >= m ):
-                                        continue
-                                    else:
-                                        for m1 in range( 0 , self.vibmax ):
-                                            if ( m1 == 0 ):
-                                                continue
-                                            else:
-                                                for n in range( 0 , self.Nchrom ):
-                                                    if ( m >= n):
-                                                        continue
-                                                    else:
-                                                        for n1 in range( 0 , self.vibmax ):
-                                                            if ( n1 == 0):
-                                                                continue
-                                                            else:
-                                                                if l1 + m1 + 1 + n1 + 1 > self.vibmax:
-                                                                    continue
-                                                                else:
-                                                                    if ( ( abs( l - m ) == 1 ) ):
-               
-                                                                        osemy = 0.0e0
-                                                                        osemx = 0.0e0   
-#!! Here, we begin to count the vibration quanta of excited states. Since we only use the nearest site approximation, only the middle position works for the exciton
-                                                                        for j1 in range( 0 , vibmax + 1 ):
-                                                                            continue
-                                                                        else:
- #!! exciton stays at N5, m positon with j1 vibrational quanta                                                                                       
-                                                                            if ( j1  + l1 + 1 + n1 + 1 > self.vibmax ):
-                                                                                continue
-                                                                            else:
-                                                                                num_3p = EMI_IBS.order_3p(  l, l1, m, m1, n, n1 )
-                                                                                lab2 = self.Index_tripple[ num_3p ]  
-                                                                                osemx = osemx + np.cos ( self.theta ) * self.evect[ lab2 , i ] * EMI_FC.gen_FCF( 0 , j1 , self.LamGE_S )
-                                                                                osemy = osemy + np.sin ( self.theta ) * self.evect[ lab2 , i ] * EMI_FC.gen_FCF( 0 , j1 , self.LamGE_S ) 
+        if self.emi_check:
+            np.savetxt('EMI_OSC_X.txt', self.Emi_osci_stre_x,
+                       fmt='%4.6f', delimiter=' ')
+            np.savetxt('EMI_OSC_Y.txt', self.Emi_osci_stre_y,
+                       fmt='%4.6f', delimiter=' ')
+            print('Emission oscillator strengths written to EMI_OSC_*.txt')
 
-                                                                        self.Emi_osci_stre_x[ i , l1 + m1 + n1 ] = self.Emi_osci_stre_x[ i , l1 + m1 + n1 ] + osemx **2 #I0-l1 + m1 - 1 + n1 - 1  l1 m1 n1 /=0 
-                                                                        self.Emi_osci_stre_y[ i , l1 + m1 + n1 ] = self.Emi_osci_stre_y[ i , l1 + m1 + n1 ] + osemy **2 #I0-l1 + m1 - 1 + n1 - 1  l1 m1 n1  /= 0
-## print out oscillator strength, if needed    
-        if ( self.emi_OSC_check ):
-            np.savetxt('EMI_OSC_X.txt', self.Emi_osci_stre_x, fmt='%4.6f', delimiter=' ')
-            np.savetxt('EMI_OSC_Y.txt', self.Emi_osci_stre_y, fmt='%4.6f', delimiter=' ')
-            print("Emission oscillator strength is omitted into txt files")
-
-        return  self.Emi_osci_stre_x , self.Emi_osci_stre_y
+        return self.Emi_osci_stre_x, self.Emi_osci_stre_y

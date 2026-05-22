@@ -1,222 +1,184 @@
-##Calculating emission spectrum
-import math
+"""Emission spectrum from a diagonalized Frenkel-CT-TT Hamiltonian.
+
+Each eigenstate alpha is weighted by a Boltzmann population with the partition
+function summed over ALL eigenstates (no spin filtering, no "find the singlet"
+step). At T = 0, all population sits in the absolute lowest eigenstate, which
+in a singlet-fission system is dominated by TT character — its small Frenkel
+admixture gives the (weak) low-temperature TT-character emission. At higher T,
+population leaks into Frenkel-character eigenstates and the bright vibronic
+progression emerges. The physics of "which states emit" is entirely carried
+by the dipole-squared matrix elements coming from EMI_OSC, not by any
+hand-curated selection.
+
+For each sideband s = 0, 1, ..., vibmax the photon energy is
+    E_photon = E_ex_s + evalue[alpha] - s * hbar*omega_vib (in eV)
+where hbar*omega_vib = vib_freq / eV converts the vibrational quantum into eV.
+"""
+
 import json
 import numpy as np
 import time as tm
+
 from Emission_OSC import EMI_OSC
-from basis_set import IBS
 
-with open('parameters.json') as EMI_inp:
-    parameters = json.load(EMI_inp)
 
-    Nchrom = parameters['geometry_parameters']['Nchrom']
-    vibmax = parameters['geometry_parameters']['vibmax']
-    theta = parameters['geometry_parameters']['theta']
-    add_TP = parameters["basis_set_options"]['add_TP']
-    add_TPv = parameters["basis_set_options"]['add_TPv']
-    LamGE_S = parameters["huang_ryhs_factors"]['LamGE_S']
+with open('parameters.json') as _f:
+    _params = json.load(_f)
 
-    step = parameters["Abs_plotting"]['step']
-    step_width = parameters["Abs_plotting"]['step_width']
-
-    Normalized = parameters["Abs_plotting"]['Normalized']
-    E_ex_s = parameters["Energy_setting"]['E_ex_s'] #Excat exciton energy in TDDFT or MBPT
-    emission_gamma = parameters['Emi_plotting']['emission_gamma']
-    emi_freq_fac_switch = parameters['Emi_plotting']['emi_freq_fac_switch']
-    Emi_Temp_depen = parameters['Emi_plotting']['Emi_Temp_depen']
-    Initial_Temp = parameters['Emi_plotting']['Initial_Temp']
-    Temp_step = parameters['Emi_plotting']['Temp_step']
-    TOT_N_Temp = parameters['Emi_plotting']['TOT_N_Temp']
-    Kb = parameters['Emi_plotting']['Kb']
-    K_exchange = parameters["Energy_setting"]['K_exchange'] 
-
-    eV = parameters["Energy_unit_exchange"]['eV']
-    vib_freq = parameters["Energy_unit_exchange"]['vib_freq']
+_E_EX_S         = _params['Energy_setting']['E_ex_s']
+_VIB_FREQ       = _params['Energy_unit_exchange']['vib_freq']
+_EV             = _params['Energy_unit_exchange']['eV']
+_VIBMAX         = _params['geometry_parameters']['vibmax']
+_STEP           = _params['Abs_plotting']['step']
+_STEP_WIDTH     = _params['Abs_plotting']['step_width']
+_NORMALIZED     = _params['Abs_plotting']['Normalized']
+_GAMMA          = _params['Emi_plotting']['emission_gamma']
+_FREQ_FAC       = _params['Emi_plotting']['emi_freq_fac_switch']
+_TEMP_DEPEN     = _params['Emi_plotting']['Emi_Temp_depen']
+_INITIAL_TEMP   = _params['Emi_plotting']['Initial_Temp']
+_TEMP_STEP      = _params['Emi_plotting']['Temp_step']
+_TOT_N_TEMP     = _params['Emi_plotting']['TOT_N_Temp']
+_KB             = _params['Emi_plotting']['Kb']
 
 
 class EMI_SP:
-    def __init__(self, kcount , evect, evalue  ):
-        self.LamGE_S = LamGE_S
-        self.Nchrom = Nchrom
-        self.vibmax = vibmax
+    """Emission spectrum with no Kasha approximation, no spin filtering."""
+
+    def __init__(self, kcount, evect, evalue):
         self.kcount = kcount
-        self.evect = evect
+        self.evect  = evect
         self.evalue = evalue
-        self.step = step
-        self.step_width = step_width
-        self.Normalized = Normalized
-        self.EMI_X = np.zeros( self.step , dtype=float )
-        self.EMI_Y = np.zeros( self.step , dtype=float )
-        #self.EMI_TOTAL = np.zeros( self.step , dtype=float )
-        self.E_ex_s = E_ex_s
-        self.Emi_Temp_depen = Emi_Temp_depen
-        self.x = np.zeros(self.step)
-        self.Initial_Temp = Initial_Temp
-        self.Temp_step = Temp_step
-        self.TOT_N_Temp = TOT_N_Temp
-        self.Kb = Kb
-        self.emi_freq_fac_switch = emi_freq_fac_switch
-        self.mu = 0.e0
-        self.vib_freq = vib_freq
-        self.eV = eV
-        self.emission_gamma = emission_gamma
-        self.fun_Z = np.zeros( TOT_N_Temp, dtype=float )
-        self.Bfac = np.zeros(self.kcount , dtype=float)
-        self.fd = 0.e0
-        self.add_TP = add_TP
-        self.add_TPv = add_TPv
-        self.K_exchange = K_exchange
-        
 
-### If included the SF in the code, the lowest energy level will be one of the TT state. When calculating the Bolzmann factor,
-### all of them will be refered to one TT state. But the exciton formed in terms of a singlet exciton, the energy is much higher 
-### higher than TT state. Then, we will see nothing in the emission. Instead, I will try to find the minimum energy of singlet 
-### exciton adiabatic state as the reference state. When the E-minimum is greater than zero, I will choose the Bfactor as 1.
-    def search_mini_siglet(self):
-        if ( self.add_TP or self.add_TPv):
-            print(f'We included TT states and we will check if the TT energy level is lower than singlet exciton energy level')
-            if ( self.K_exchange < 0.e0):
-                EMI_IBS = IBS()
-                self.Index_single = EMI_IBS.arr_1p()
-                num_1p = np.count_nonzero( self.Index_single ) + 1  ### Because in python, the index of array starts from 0.
-                print(f'The number sumed is ' , num_1p )
-                evalue_backup = self.evalue
-                while True:
-                    #min_index = np.argmin(evalue_backup)
-                    min_index = np.ndarray.argmin(evalue_backup)
-                    den_sum =0.e0
-                    for i in range( 0 , num_1p + 1 ):
-                        den_sum = den_sum + ( self.evect[ i , min_index ] )**2
-                        
-                    if ( den_sum > 4.5e-01):
-                        print(f"Found a minimum value that meets the condition: {self.evalue[min_index]} at index {min_index}")
-                        min_value_used = self.evalue[ min_index ]
-                        break
-                    else:
-                        print(f"Deleted minimum value:{self.evalue[min_index]} at index {min_index}; continuing search...")  
-                        evalue_backup[min_index] = 1.0e4
-                    
-                    
-            else: 
-                min_value_used = np.min( self.evalue )  
-                 
-        else:
-            min_value_used = np.min( self.evalue )
+        self.E_ex_s     = _E_EX_S
+        self.vib_freq   = _VIB_FREQ
+        self.eV         = _EV
+        self.vibmax     = _VIBMAX
+        self.step       = _STEP
+        self.step_width = _STEP_WIDTH
+        self.normalized = _NORMALIZED
+        self.gamma      = _GAMMA
+        self.freq_fac   = _FREQ_FAC
+        self.temp_dep   = _TEMP_DEPEN
+        self.T_init     = _INITIAL_TEMP
+        self.T_step     = _TEMP_STEP
+        self.n_temp     = _TOT_N_TEMP if _TEMP_DEPEN else 1
+        self.Kb         = _KB
 
-        return min_value_used
+        # Vibrational quantum in eV (used to shift sidebands)
+        self.hw_eV = self.vib_freq / self.eV
 
-    ## Bolzmann factor 
-    def BZ_fuc(self, k , t_ke , singlet_minimum_energy ):
-        
-        if (  self.evalue[k] - singlet_minimum_energy >= 0.0e0 ):
-            self.fd = np.exp( -1.e0 * ( self.evalue[k] - singlet_minimum_energy ) /( self.Kb * t_ke )   )
-        else:
-            self.fd = 1.0e0
-        return self.fd
-    
-    #!! Bolzmann Ensemble function 
-    def Bol_Z(self):
-        tkelvin = 0.e0
-        min_singlet_ex = self.search_mini_siglet()
-        if (self.Emi_Temp_depen):
-            Number_of_Temp = self.TOT_N_Temp
-        else:
-            Number_of_Temp = 1
+    # ------------------------------------------------------------------
+    # Populations
+    # ------------------------------------------------------------------
 
-        for ktem in range( 0 , Number_of_Temp ):  
-            tkelvin =  ( ktem ) * self.Temp_step  + self.Initial_Temp
-            print(f'The temperature is', tkelvin)
-            for i in range( 0 , self.kcount ):
-                if ( tkelvin == 0.00e0 ):
-                    self.fun_Z[ ktem ] = 1.0e0
-                else:
-                    self.fun_Z[ ktem ] = self.fun_Z[ ktem ] + self.BZ_fuc( i , tkelvin , min_singlet_ex )
-                    ##print(f'The Bolzman Ensemble function is ', self.fun_Z)
-        return self.fun_Z 
+    def populations(self, T):
+        """Boltzmann populations over all eigenstates.
 
+        At T == 0, all population sits in the absolute lowest eigenstate
+        (whatever its character — typically TT in a singlet-fission system).
+        At T > 0, standard Boltzmann distribution with the minimum eigenvalue
+        as the reference energy.
+        """
+        if T <= 0.0:
+            P = np.zeros(self.kcount, dtype=float)
+            P[np.argmin(self.evalue)] = 1.0
+            return P
+        dE = self.evalue - self.evalue.min()
+        boltz = np.exp(-dE / (self.Kb * T))
+        return boltz / boltz.sum()
+
+    # ------------------------------------------------------------------
+    # Spectrum
+    # ------------------------------------------------------------------
 
     def cal_EMI(self):
-        self.Dis_Z = self.Bol_Z()
-        print(f'The Bolzmann Ensemble functin is ', self.Dis_Z)
-        ##print(f'The eigenvalue used in EMI_plotting is', self.evalue)
-        start_time = tm.time()
-        my_EMI = EMI_OSC ( self.kcount , self.evect , self.evalue )
-        Emi_osc_x , Emi_osc_y = my_EMI.gen_EMI_OSC()
-        end_time = tm.time()
-        print(f'Time of calculting the oscillator strength of Emission spectrum is ', end_time - start_time )
-        start_time = tm.time()
-        min_singlet_ex1 = self.search_mini_siglet()
-        if ( self.Emi_Temp_depen and self.TOT_N_Temp > 1 ):
-            self.EMI_TOTAL = np.zeros( ( self.step , self.TOT_N_Temp ), dtype=float )
-            for N_Temp in range( 0 , self.TOT_N_Temp):
-                self.EMI_X = np.zeros( self.step , dtype=float )
-                self.EMI_Y = np.zeros( self.step , dtype=float )
-                tkelvin = ( N_Temp ) * self.Temp_step  + self.Initial_Temp
-                
-                for i in range( 0 , self.step):
-                    self.x[i] = self.E_ex_s + (i - self.step/2) * self.step_width  #np.multiply(self.step_width, i - self.step/2 , dtype=float)
-                    for j in range( 0 , self.kcount):
-                        if ( tkelvin == 0.0e00):
-                            self.Bfac[j] = 1.0e0
-                        else:
-                            BZ_dis_num = self.BZ_fuc( j , tkelvin ,  min_singlet_ex1 )
-                            ##print(f'The Bolzmann distribution for state', j ,'is', BZ_dis_num)
-                            self.Bfac[j] = BZ_dis_num / self.Dis_Z[N_Temp]
-                            #if( N_Temp > 0):
-                               # print(f'The Bolzmann factor is', self.Bfac[j] )
-                        self.mu = ( self.E_ex_s + self.evalue[j]  ) 
-                        for j1 in range( 0 , vibmax + 1 ):
-                            if ( self.emi_freq_fac_switch ): ##practical plotting
-                                emi_freq_fac = (self.E_ex_s + self.evalue[ j ] - j1 * self.vib_freq / self.eV ) **3
-                            else:
-                                emi_freq_fac = 1.0e0
-                            
+        # 1. Get sideband-resolved oscillator strengths
+        t0 = tm.time()
+        emi = EMI_OSC(self.kcount, self.evect, self.evalue)
+        osc_x, osc_y = emi.gen_EMI_OSC()                       # (kcount, vibmax+1)
+        osc_total = osc_x + osc_y
+        print(f'EMI_OSC computed in {tm.time() - t0:.3f} s')
 
-                            self.EMI_X[i] = self.EMI_X[i] + emi_freq_fac * self.Bfac[j] * Emi_osc_x[j , j1] * np.exp(-( ( self.x[i] - self.mu  + j1 * self.vib_freq / self.eV ) / self.emission_gamma )**2 )
-                            
-                            self.EMI_Y[i] = self.EMI_Y[i] + emi_freq_fac * self.Bfac[j] * Emi_osc_y[j , j1] * np.exp(-( ( self.x[i] - self.mu  + j1 * self.vib_freq / self.eV ) / self.emission_gamma )**2 )  
+        # 2. Photon-energy axis
+        x = self.E_ex_s + self.step_width * (np.arange(self.step) - self.step / 2)
 
+        # 3. Loop over temperatures, fully vectorized inside each T
+        t0 = tm.time()
+        if self.temp_dep and self.n_temp > 1:
+            emi_total = np.zeros((self.step, self.n_temp), dtype=float)
+            for k in range(self.n_temp):
+                T = self.T_init + k * self.T_step
+                emi_total[:, k] = self._spectrum_at_T(x, osc_total, T)
+        else:
+            T = self.T_init
+            emi_total = self._spectrum_at_T(x, osc_total, T)
+        print(f'Emission spectrum computed in {tm.time() - t0:.3f} s')
 
-                self.EMI_TOTAL[:,N_Temp] = self.EMI_X + self.EMI_Y
-                data = np.column_stack((self.x, self.EMI_TOTAL))
-                np.savetxt('MY_EMI.dat', data, fmt='%.6f', delimiter='\t')
-            print(f'The dimenstion of ABS_TOTAL is' , np.shape(self.EMI_TOTAL) )
-        else: ##single temperature 
-                self.EMI_TOTAL = np.zeros(self.step , dtype=float )
-                self.EMI_X = np.zeros( self.step , dtype=float )
-                self.EMI_Y = np.zeros( self.step , dtype=float )
-                tkelvin = self.Initial_Temp
-                for i in range( 0 , self.step):
-                    self.x[i] = self.E_ex_s + np.multiply(self.step_width, i - self.step/2 , dtype=float)
-                    for j in range( 0 , self.kcount):
-                        if ( tkelvin == 0.0e0):
-                            self.Bfac[j] = 1.0e0
-                        else:
-                            self.Bfac[j] = self.BZ_fuc( j , tkelvin , min_singlet_ex1 ) / self.Dis_Z[0]
+        # 4. Optional normalization to unit peak
+        if self.normalized:
+            mx = emi_total.max()
+            if mx > 0:
+                emi_total = emi_total / mx
 
-                        self.mu = ( self.E_ex_s + self.evalue[j]  ) 
-                            #print(f'The Bolzman factor at', j , 'is', self.Bfac[j])
-                        for j1 in range( 0 , vibmax + 1 ):
-                            if ( self.emi_freq_fac_switch ): ##practical plotting
-                                emi_freq_fac = (self.E_ex_s + self.evalue[ j ] - j1 * self.vib_freq / self.eV ) **3
-                            else:
-                                emi_freq_fac = 1.0e0
-                            
+        # 5. Save
+        if emi_total.ndim == 1:
+            np.savetxt('MY_EMI.dat',
+                       np.column_stack([x, emi_total]),
+                       fmt='%.6f', delimiter='\t')
+        else:
+            np.savetxt('MY_EMI.dat',
+                       np.column_stack([x, emi_total]),
+                       fmt='%.6f', delimiter='\t')
 
-                            self.EMI_X[i] = self.EMI_X[i] + emi_freq_fac * self.Bfac[j] * Emi_osc_x[j , j1] * np.exp(-( ( self.x[i] - self.mu  + j1 * self.vib_freq / self.eV ) / self.emission_gamma )**2 )
-                           
-                            self.EMI_Y[i] = self.EMI_Y[i] + emi_freq_fac * self.Bfac[j] * Emi_osc_y[j , j1] * np.exp(-( ( self.x[i] - self.mu  + j1 * self.vib_freq / self.eV ) / self.emission_gamma )**2 )  
+        return x, emi_total
 
+    # ------------------------------------------------------------------
+    # Internals
+    # ------------------------------------------------------------------
 
+    def _spectrum_at_T(self, x, osc_total, T):
+        """Compute emission spectrum at a single temperature.
 
+        Parameters
+        ----------
+        x : (step,) ndarray
+            Photon energy axis in eV.
+        osc_total : (kcount, vibmax+1) ndarray
+            |mu_X|^2 + |mu_Y|^2 per (eigenstate, sideband).
+        T : float
+            Temperature in Kelvin.
 
-                self.EMI_TOTAL = self.EMI_X + self.EMI_Y
+        Returns
+        -------
+        spectrum : (step,) ndarray
+        """
+        P = self.populations(T)                                # (kcount,)
+        spectrum = np.zeros(self.step, dtype=float)
 
-                data = np.column_stack((self.x, self.EMI_TOTAL))
-                np.savetxt('MY_EMI.dat', data, fmt='%.6f', delimiter='\t')
+        # For each sideband s, the photon energy is E_alpha - s*hw + E_ex_s.
+        # Centers: (kcount, vibmax+1) array of peak positions
+        s_arr = np.arange(self.vibmax + 1)                     # (vibmax+1,)
+        # centers[alpha, s] = E_ex_s + evalue[alpha] - s * hw
+        centers = self.E_ex_s + self.evalue[:, None] - s_arr[None, :] * self.hw_eV
 
-        end_time = tm.time()        
-        print(f'The emission spectrum is done and the time is', end_time - start_time )
-        #print(f'The dimenstion of ABS_TOTAL is' , np.shape(self.EMI_TOTAL) )
-        return self.x, self.EMI_TOTAL 
-        
+        # ω^3 factor per (alpha, s) — uses the photon energy at peak center
+        if self.freq_fac:
+            freq3 = centers ** 3
+        else:
+            freq3 = np.ones_like(centers)
+
+        # Weighted oscillator strength per (alpha, s)
+        weighted = (P[:, None] * freq3 * osc_total)            # (kcount, vibmax+1)
+
+        # Gaussian broadening: vectorized over x and (alpha, s).
+        # For each (alpha, s), add weighted[alpha, s] * exp(-((x - centers[alpha, s])/gamma)^2)
+        # The full outer product (step, kcount, vibmax+1) can be memory-heavy
+        # for large kcount, so loop over sidebands (small, vibmax+1).
+        for s in range(self.vibmax + 1):
+            mu = centers[:, s]                                 # (kcount,)
+            w  = weighted[:, s]                                # (kcount,)
+            # arg shape (step, kcount), then sum over kcount
+            arg = (x[:, None] - mu[None, :]) / self.gamma
+            spectrum += (w[None, :] * np.exp(-arg ** 2)).sum(axis=1)
+
+        return spectrum

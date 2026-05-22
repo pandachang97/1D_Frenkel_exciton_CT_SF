@@ -81,7 +81,56 @@ class GHam:
         self.LamCTpT= 0.e0
         self.LamCTnT= 0.e0
 
-        
+
+    def is_neighbor(self, a, b, periodic=True):
+        """True if sites a and b are nearest neighbors on the 1D chain,
+        including the periodic boundary when enabled.
+        """
+        if abs(a - b) == 1:
+            return True
+        if periodic and self.Nchrom > 2 and abs(a - b) == self.Nchrom - 1:
+            return True
+        return False
+ 
+    def site_distance(self, i, j, periodic=False):
+        """Distance between chromophore indices in units of nearest-neighbor spacing.
+
+        If periodic=False:
+            distance = abs(i - j)
+
+        If periodic=True:
+            use the shortest distance around the ring.
+        """
+        if i == j:
+            return 0
+
+        d = abs(i - j)
+
+        if periodic:
+            d = min(d, self.Nchrom - d)
+
+        return d
+
+
+    def calc_JCou(self, i, j, periodic=False, decay_power=1.0):
+        """Distance-dependent Coulombic Frenkel coupling.
+
+        For nearest neighbors:
+            distance = 1, so J = JCou_inter.
+
+        For farther pairs:
+            J = JCou_inter / distance**decay_power.
+
+        decay_power = 1.0 gives J/R.
+        decay_power = 3.0 gives dipole-dipole-like J/R^3.
+        """
+        d = self.site_distance(i, j, periodic=periodic)
+
+        if d == 0:
+            return 0.0
+
+        return self.JCou_inter / (d ** decay_power)
+
 
 ##generating Hamiltonian matrix block by block
     def gen_Ham ( self ):
@@ -180,9 +229,9 @@ class GHam:
                         if ( lab1 == lab2 ): ##diagonal elements
                             self.diabatic_Ham[ ( lab1, lab2 ) ]  = self.ESex_ref + np.multiply( i1 , 1.0 , dtype=float )
                         else:  ##off-diagonal elements
-                            if ( i != l):
-                                self.diabatic_Ham[ ( lab1, lab2 ) ]  = self.JCou_inter * Ham_FCF.gen_FCF( 0, i1, self.LamGE_S ) * Ham_FCF.gen_FCF( 0, l1, self.LamGE_S )
-                                self.diabatic_Ham[ (lab2, lab1 )] = self.diabatic_Ham[ (lab1, lab2 )]
+                            _tem_JCou =  self.calc_JCou( i, l, periodic=self.JCou_inter_periodic, decay_power=1.0)
+                            self.diabatic_Ham[ ( lab1, lab2 ) ]  = _tem_JCou * Ham_FCF.gen_FCF( 0, i1, self.LamGE_S ) * Ham_FCF.gen_FCF( 0, l1, self.LamGE_S )
+                            self.diabatic_Ham[ (lab2, lab1 )] = self.diabatic_Ham[ (lab1, lab2 )]
         #1.2, 2 particle block in singlet exciton
         if self.add_double:
             for i in range( 0 , self.Nchrom ):
@@ -210,13 +259,15 @@ class GHam:
                                                             num_2p = Ham_IBS.order_2p( l, l1, m, m1 )
                                                             lab2 = self.Index_double[num_2p]
                                                             if (lab1 == lab2): ## diagonal elements
-                                                                self.diabatic_Ham[ ( lab1, lab2 ) ]  = self.ESex_ref + np.multiply(  self.Sfactor ,l1 , dtype=float ) + np.multiply( self.Sfactor ,m1 , dtype=float )
+                                                                self.diabatic_Ham[ ( lab1, lab2 ) ]  =  self.ESex_ref + Sfactor * l1 + Sfactor * (m1 + 1)
                                                             else: ##off-diagonal elements
                                                                 if ( i == m and j == l ):
-                                                                    self.diabatic_Ham[ (lab1, lab2 )] = self.JCou_inter * Ham_FCF.gen_FCF( m1 + 1 , i1, self.LamGE_S ) * Ham_FCF.gen_FCF( j1 + 1, l1, self.LamGE_S )
+                                                                    _tem_JCou =  self.calc_JCou( i, l, periodic=self.JCou_inter_periodic, decay_power=1.0)
+                                                                    self.diabatic_Ham[ (lab1, lab2 )] = _tem_JCou * Ham_FCF.gen_FCF( m1 + 1 , i1, self.LamGE_S ) * Ham_FCF.gen_FCF( j1 + 1, l1, self.LamGE_S )
                                                                     self.diabatic_Ham[ (lab2, lab1 )] = self.diabatic_Ham[ (lab1, lab2 )]
                                                                 elif ( j == m and j1 == m1 ):
-                                                                    self.diabatic_Ham[ (lab1, lab2 )]  = self.JCou_inter * Ham_FCF.gen_FCF( 0, i1 , self.LamGE_S ) * Ham_FCF.gen_FCF( 0, l1 , self.LamGE_S )
+                                                                    _tem_JCou =  self.calc_JCou( i, l, periodic=self.JCou_inter_periodic, decay_power=1.0)
+                                                                    self.diabatic_Ham[ (lab1, lab2 )]  = _tem_JCou * Ham_FCF.gen_FCF( 0, i1 , self.LamGE_S ) * Ham_FCF.gen_FCF( 0, l1 , self.LamGE_S )
                                                                     self.diabatic_Ham[ (lab2, lab1 )] = self.diabatic_Ham[ (lab1, lab2 )]
                                                                 else:
                                                                     self.diabatic_Ham[ (lab1, lab2 )]  = 0.e0
@@ -236,7 +287,7 @@ class GHam:
                                         if i1 + j1 + 1 + k1 + 1 > self.vibmax:
                                             continue
                                         else:
-                                            if ( ( abs( i - j ) == 1 ) or abs( i - k ) > 1 and abs( i - k ) != self.Nchrom - 1 ):
+                                            if ( self.is_neighbor(i, j, self.JCou_inter_periodic) or self.is_neighbor(i, k, self.JCou_inter_periodic) ):
                                                 num_3p = Ham_IBS.order_3p(  i, i1, j, j1, k, k1 )
                                                 lab1 = self.Index_tripple[ num_3p ]
                                                 for l in range( 0 , self.Nchrom ):
@@ -251,30 +302,36 @@ class GHam:
                                                                             if l1 + m1 + 1 + n1 + 1 > self.vibmax:
                                                                                 continue
                                                                             else:
-                                                                                if ( ( abs( l - m ) == 1 ) or abs( l - n ) > 1 and abs( l - n ) != self.Nchrom - 1 ):
+                                                                                if ( self.is_neighbor(l, m, self.JCou_inter_periodic) or self.is_neighbor(l, n, self.JCou_inter_periodic) ):
                                                                                     num_3p = Ham_IBS.order_3p(  l, l1, m, m1, n, n1 )
                                                                                     lab2 = self.Index_tripple[ num_3p ]
                                                                                     if (lab1 == lab2): ## diagonal elements
-                                                                                        self.diabatic_Ham[ ( lab1, lab2 ) ]  = self.ESex_ref + np.multiply( self.Sfactor ,l1 , dtype=float ) + np.multiply( self.Sfactor ,m1 , dtype=float ) + np.multiply(  self.Sfactor ,n1 , dtype=float )
+                                                                                        self.diabatic_Ham[ ( lab1, lab2 ) ]  = self.ESex_ref + Sfactor * l1 + Sfactor * (m1 + 1) + Sfactor * (n1 + 1)
                                                                                     else: #off-diagonal elements
                                                                                         if (i != l):
                                                                                             if (j == l and i == m and k == n and k1 == n1):
-                                                                                                self.diabatic_Ham[ (lab1, lab2 )] = self.JCou_inter * Ham_FCF.gen_FCF( m1 + 1, i1, self.LamGE_S ) * Ham_FCF.gen_FCF( j1 +1, l1, self.LamGE_S )
+                                                                                                _tem_JCou =  self.calc_JCou( i, l, periodic=self.JCou_inter_periodic, decay_power=1.0)
+                                                                                                self.diabatic_Ham[ (lab1, lab2 )] = _tem_JCou * Ham_FCF.gen_FCF( m1 + 1, i1, self.LamGE_S ) * Ham_FCF.gen_FCF( j1 +1, l1, self.LamGE_S )
                                                                                                 self.diabatic_Ham[ (lab2, lab1 )] = self.diabatic_Ham[ (lab1, lab2 )]
                                                                                             elif(j == l and i == n and k == m and m1 == k1):
-                                                                                                self.diabatic_Ham[ (lab1, lab2 )] = self.JCou_inter * Ham_FCF.gen_FCF( n1 + 1, i1, self.LamGE_S ) * Ham_FCF.gen_FCF( j1 +1, l1, self.LamGE_S )
+                                                                                                _tem_JCou =  self.calc_JCou( i, l, periodic=self.JCou_inter_periodic, decay_power=1.0)
+                                                                                                self.diabatic_Ham[ (lab1, lab2 )] = _tem_JCou * Ham_FCF.gen_FCF( n1 + 1, i1, self.LamGE_S ) * Ham_FCF.gen_FCF( j1 +1, l1, self.LamGE_S )
                                                                                                 self.diabatic_Ham[ (lab2, lab1 )] = self.diabatic_Ham[ (lab1, lab2 )]
                                                                                             elif(k == l and i == m and j == n and j1 == n1 ):
-                                                                                                self.diabatic_Ham[ (lab1, lab2 )] = self.JCou_inter * Ham_FCF.gen_FCF( m1 + 1, i1, self.LamGE_S ) * Ham_FCF.gen_FCF( k1 +1, l1, self.LamGE_S )
+                                                                                                _tem_JCou =  self.calc_JCou( i, l, periodic=self.JCou_inter_periodic, decay_power=1.0)
+                                                                                                self.diabatic_Ham[ (lab1, lab2 )] = _tem_JCou * Ham_FCF.gen_FCF( m1 + 1, i1, self.LamGE_S ) * Ham_FCF.gen_FCF( k1 +1, l1, self.LamGE_S )
                                                                                                 self.diabatic_Ham[ (lab2, lab1 )] = self.diabatic_Ham[ (lab1, lab2 )]
                                                                                             elif(k == l and i == n and j == m and j1 == m1):
-                                                                                                self.diabatic_Ham[ (lab1, lab2 )] = self.JCou_inter * Ham_FCF.gen_FCF( n1 + 1, i1, self.LamGE_S ) * Ham_FCF.gen_FCF( k1 +1, l1, self.LamGE_S )
+                                                                                                _tem_JCou =  self.calc_JCou( i, l, periodic=self.JCou_inter_periodic, decay_power=1.0)
+                                                                                                self.diabatic_Ham[ (lab1, lab2 )] = _tem_JCou * Ham_FCF.gen_FCF( n1 + 1, i1, self.LamGE_S ) * Ham_FCF.gen_FCF( k1 +1, l1, self.LamGE_S )
                                                                                                 self.diabatic_Ham[ (lab2, lab1 )] = self.diabatic_Ham[ (lab1, lab2 )]
                                                                                             elif(j == m and j1 == m1 and k == n and k1 == n1):
-                                                                                                self.diabatic_Ham[ (lab1, lab2 )] = self.JCou_inter * Ham_FCF.gen_FCF( 0 , i1, self.LamGE_S ) * Ham_FCF.gen_FCF( 0 , l1, self.LamGE_S )
+                                                                                                _tem_JCou =  self.calc_JCou( i, l, periodic=self.JCou_inter_periodic, decay_power=1.0)
+                                                                                                self.diabatic_Ham[ (lab1, lab2 )] = _tem_JCou * Ham_FCF.gen_FCF( 0 , i1, self.LamGE_S ) * Ham_FCF.gen_FCF( 0 , l1, self.LamGE_S )
                                                                                                 self.diabatic_Ham[ (lab2, lab1 )] = self.diabatic_Ham[ (lab1, lab2 )]
                                                                                             elif( j == n and j1 == n1 and k == m and k1 == m1 ):
-                                                                                                self.diabatic_Ham[ (lab1, lab2 )] = self.JCou_inter * Ham_FCF.gen_FCF( 0 , i1, self.LamGE_S ) * Ham_FCF.gen_FCF( 0 , l1, self.LamGE_S )
+                                                                                                _tem_JCou =  self.calc_JCou( i, l, periodic=self.JCou_inter_periodic, decay_power=1.0)
+                                                                                                self.diabatic_Ham[ (lab1, lab2 )] = _tem_JCou * Ham_FCF.gen_FCF( 0 , i1, self.LamGE_S ) * Ham_FCF.gen_FCF( 0 , l1, self.LamGE_S )
                                                                                                 self.diabatic_Ham[ (lab2, lab1 )] = self.diabatic_Ham[ (lab1, lab2 )]
                                                                                             else:
                                                                                                 self.diabatic_Ham[ (lab1, lab2 )] = 0.e0
@@ -291,8 +348,7 @@ class GHam:
                             if i == j:
                                 continue
                             else:
-                                if( ( ( abs( i - j ) == 1 ) ) or  \
-          ( self.Nchrom >= 3 and abs( i - j ) == self.Nchrom - 1 and self.CT_inter_periodic ) ):
+                                if( self.is_neighbor(i, j, self.CT_inter_periodic ) ):
                                     if ( i1 + j1 > self.vibmax ):
                                         continue
                                     else:
@@ -305,8 +361,7 @@ class GHam:
                                                         if l == m:
                                                             continue
                                                         else:
-                                                            if( ( ( abs( l - m ) == 1 ) ) or  \
-          ( self.Nchrom >= 3 and abs( l - m ) == self.Nchrom - 1 and self.CT_inter_periodic ) ):
+                                                            if( self.is_neighbor(l, m, self.CT_inter_periodic ) ):
                                                                 if ( l1 + m1 > self.vibmax ):
                                                                     continue
                                                                 else:
@@ -333,12 +388,11 @@ class GHam:
                                     if (  i == j or j == k or i  == k ) :
                                         continue
                                     else:
-                                        if ( ( abs( i - j) == 1  ) or \
-                                    ( self.Nchrom >= 3 and abs( i - j) == self.Nchrom - 1 and self.CT_inter_periodic ) ):
+                                        if (self.is_neighbor( i, j , self.CT_inter_periodic ) ):
                                             if ( i1 + j1 + k1 + 1 > self.vibmax ):
                                                 continue
                                             else:
-                                                if ( abs( i - k ) == 1 ) or (abs( j - k ) == 1 ): 
+                                                if ( self.is_neighbor( i, k , self.CT_inter_periodic ) or self.is_neighbor( j, k , self.CT_inter_periodic ) ): 
                                                     num_CTv = Ham_IBS.order_CTv( i, i1, j, j1, k, k1 )
                                                     lab1 = self.Index_CTv[num_CTv]
                                                     for l in range( 0 , self.Nchrom ):
@@ -350,19 +404,18 @@ class GHam:
                                                                             if (  l == m or m == n or l  == n ) :
                                                                                 continue
                                                                             else:
-                                                                                if ( ( abs( l - m) == 1  ) or \
-                                    ( self.Nchrom >= 3 and abs( l - m) == self.Nchrom - 1 and self.CT_inter_periodic ) ):
+                                                                                if ( self.is_neighbor( l, m , self.CT_inter_periodic )  ):
                                                                                     if ( l1 + m1 + n1 + 1 > self.vibmax ):
                                                                                         continue
                                                                                     else:
-                                                                                        if ( abs( l - n ) == 1 ) or (abs( m - n ) == 1 ): 
+                                                                                        if ( self.is_neighbor( l, n , self.CT_inter_periodic ) or self.is_neighbor( m, n , self.CT_inter_periodic ) ): 
                                                                                             num_CTv = Ham_IBS.order_CTv( l, l1, m, m1, n, n1 )
                                                                                             lab2 = self.Index_CTv[num_CTv]
                                                                                             if (lab1 == lab2):##diagonal elements
                                                                                                 if ( i < j ):
-                                                                                                    self.diabatic_Ham[ ( lab1, lab2 ) ]  = self.E_CT_PpPn + np.multiply(  self.Sfactor ,l1 , dtype=float ) + np.multiply( self.Sfactor ,m1 , dtype=float ) + np.multiply( self.Sfactor ,n1 , dtype=float )  
+                                                                                                    self.diabatic_Ham[ ( lab1, lab2 ) ]  = self.E_CT_PpPn + Sfactor * l1 + Sfactor * m1 + Sfactor * (n1 + 1)
                                                                                                 elif( i > j ):
-                                                                                                    self.diabatic_Ham[ ( lab1, lab2 ) ]  = self.E_CT_PnPp + np.multiply(  self.Sfactor ,l1 , dtype=float ) + np.multiply( self.Sfactor ,m1 , dtype=float ) + np.multiply(  self.Sfactor ,n1 , dtype=float )  
+                                                                                                    self.diabatic_Ham[ ( lab1, lab2 ) ]  = self.E_CT_PnPp + Sfactor * l1 + Sfactor * m1 + Sfactor * (n1 + 1) 
                                                                                             else: ##off-diagonal elements
                                                                                                 self.diabatic_Ham[ ( lab1, lab2 ) ]  = 0.e0
         else:
@@ -376,8 +429,7 @@ class GHam:
                             if i >= j:
                                 continue
                             else:
-                                if( ( ( abs( i - j ) == 1 ) ) or  \
-          ( self.Nchrom >= 3 and abs( i - j ) == self.Nchrom - 1 and self.CT_inter_periodic ) ):
+                                if( self.is_neighbor( i, j, self.CT_inter_periodic ) ):
                                     if ( i1 + j1 > self.vibmax ):
                                         continue
                                     else:
@@ -390,8 +442,7 @@ class GHam:
                                                         if l >= m:
                                                             continue
                                                         else:
-                                                            if( ( ( abs( l - m ) == 1 ) ) or  \
-          ( self.Nchrom >= 3 and abs( l - m ) == self.Nchrom - 1 and self.CT_inter_periodic ) ):
+                                                            if( self.is_neighbor( l, m, self.CT_inter_periodic ) ):
                                                                 if ( l1 + m1 > self.vibmax ):
                                                                     continue
                                                                 else:
@@ -416,12 +467,11 @@ class GHam:
                                     if (  i >= j or j == k or i  == k ) :
                                         continue
                                     else:
-                                        if ( ( abs( i - j) == 1  ) or \
-                                    ( self.Nchrom >= 3 and abs( i - j) == self.Nchrom - 1 and self.CT_inter_periodic ) ):
+                                        if ( self.is_neighbor( i, j, self.CT_inter_periodic ) ):
                                             if ( i1 + j1 + k1 + 1 > self.vibmax ):
                                                 continue
                                             else:
-                                                if ( abs( i - k ) == 1 ) or (abs( j - k ) == 1 ): 
+                                                if self.is_neighbor( i, k , self.CT_inter_periodic) or self.is_neighbor( j, k , self.CT_inter_periodic ): 
                                                     num_TPv = Ham_IBS.order_TPv( i, i1, j, j1, k, k1 )
                                                     lab1 = self.Index_TPv[num_TPv]
                                                     for l in range( 0 , self.Nchrom ):
@@ -432,20 +482,22 @@ class GHam:
                                                                         for n1 in range( 0 , self.vibmax ):
                                                                             if (  l >= m or m == n or l  == n ) :
                                                                                 continue
-                                                                            else:
-                                                                                if ( ( abs( l - m) == 1  ) or \
-                                    ( self.Nchrom >= 3 and abs( l - m) == self.Nchrom - 1 and self.CT_inter_periodic ) ):
+                                                                            else: 
+                                                                                if ( self.is_neighbor( l, m, self.CT_inter_periodic ) ):
                                                                                     if ( l1 + m1 + n1 + 1 > self.vibmax ):
                                                                                         continue
                                                                                     else:
-                                                                                        if ( abs( l - n ) == 1 ) or (abs( m - n ) == 1 ): 
-                                                                                            num_TPv = Ham_IBS.order_TPv( l, l1, m, m1, n, n1 )
-                                                                                            lab2 = self.Index_TPv[num_TPv]
-                                                                                            if (lab1 == lab2):##diagonal elements
-                                                                                                self.diabatic_Ham[ ( lab1, lab2 ) ]  = self.E_TP + np.multiply( self.Sfactor ,l1 , dtype=float ) + np.multiply( self.Sfactor ,m1 , dtype=float ) + np.multiply( self.Sfactor ,n1 , dtype=float )  
-                                                                                            else: ##off-diagonal elements
-                                                                                                self.diabatic_Ham[ ( lab1, lab2 ) ]  = 0.e0
-                                                                                                self.diabatic_Ham[ (lab2, lab1 )] = self.diabatic_Ham[ (lab1, lab2 )]
+                                                                                        if ( self.is_neighbor( l, n , self.CT_inter_periodic) or self.is_neighbor( m, n , self.CT_inter_periodic) ):
+                                                                                            if ( l1 + m1 + n1 + 1 > self.vibmax ):
+                                                                                                continue
+                                                                                            else: 
+                                                                                                num_TPv = Ham_IBS.order_TPv( l, l1, m, m1, n, n1 )
+                                                                                                lab2 = self.Index_TPv[num_TPv]
+                                                                                                if (lab1 == lab2):##diagonal elements
+                                                                                                    self.diabatic_Ham[(lab1, lab2)] = self.E_TP + Sfactor * l1 + Sfactor * m1 + Sfactor * (n1 + 1)
+                                                                                                else: ##off-diagonal elements
+                                                                                                    self.diabatic_Ham[ ( lab1, lab2 ) ]  = 0.e0
+                                                                                                    self.diabatic_Ham[ (lab2, lab1 )] = self.diabatic_Ham[ (lab1, lab2 )]
         else:
             print(f'We did not include Triplet pair with vibration basis set')
         ##Diagonal blocks are done
@@ -469,7 +521,8 @@ class GHam:
                                             num_2p = Ham_IBS.order_2p( l, l1, m, m1 )
                                             lab2 = self.Index_double[num_2p]
                                             if ( i == m ):
-                                                self.diabatic_Ham[ ( lab1, lab2 ) ]  = self.JCou_inter * Ham_FCF.gen_FCF( m1 + 1 , i1, self.LamGE_S ) * Ham_FCF.gen_FCF( 0 , l1, self.LamGE_S )
+                                                _tem_JCou =  self.calc_JCou( i, l, periodic=self.JCou_inter_periodic, decay_power=1.0)
+                                                self.diabatic_Ham[ ( lab1, lab2 ) ]  = _tem_JCou * Ham_FCF.gen_FCF( m1 + 1 , i1, self.LamGE_S ) * Ham_FCF.gen_FCF( 0 , l1, self.LamGE_S )
                                                 self.diabatic_Ham[ (lab2, lab1 )] = self.diabatic_Ham[ (lab1, lab2 )]
                                             else:
                                                 self.diabatic_Ham[ ( lab1, lab2 ) ]  = 0.e0
@@ -503,15 +556,17 @@ class GHam:
                                                                 if l1 + m1 + 1 + n1 + 1 > self.vibmax:
                                                                     continue
                                                                 else:
-                                                                    if ( ( abs( l - m ) == 1 ) or abs( l - n ) > 1 and abs( l - n ) != self.Nchrom - 1 ):
+                                                                    if ( self.is_neighbor(l, m, self.JCou_inter_periodic) or self.is_neighbor(l, n, self.JCou_inter_periodic) ):
                                                                         num_3p = Ham_IBS.order_3p(  l, l1, m, m1, n, n1 )
                                                                         lab2 = self.Index_tripple[ num_3p ]
                                                                         if ( i != l):
                                                                             if ( i == m and j == n and j1== n1 ):
-                                                                                self.diabatic_Ham[ ( lab1, lab2 ) ]  =  self.JCou_inter * Ham_FCF.gen_FCF( m1 + 1 , i1, self.LamGE_S ) * Ham_FCF.gen_FCF( 0 , l1, self.LamGE_S )
+                                                                                _tem_JCou =  self.calc_JCou( i, l, periodic=self.JCou_inter_periodic, decay_power=1.0)
+                                                                                self.diabatic_Ham[ ( lab1, lab2 ) ]  =  _tem_JCou * Ham_FCF.gen_FCF( m1 + 1 , i1, self.LamGE_S ) * Ham_FCF.gen_FCF( 0 , l1, self.LamGE_S )
                                                                                 self.diabatic_Ham[ (lab2, lab1 )] = self.diabatic_Ham[ (lab1, lab2 )]
                                                                             elif( i == n and j == m and j1== m1 ):
-                                                                                self.diabatic_Ham[ ( lab1, lab2 ) ]  =  self.JCou_inter * Ham_FCF.gen_FCF( n1 + 1 , i1, self.LamGE_S ) * Ham_FCF.gen_FCF( 0 , l1, self.LamGE_S )
+                                                                                _tem_JCou =  self.calc_JCou( i, l, periodic=self.JCou_inter_periodic, decay_power=1.0)
+                                                                                self.diabatic_Ham[ ( lab1, lab2 ) ]  =  _tem_JCou * Ham_FCF.gen_FCF( n1 + 1 , i1, self.LamGE_S ) * Ham_FCF.gen_FCF( 0 , l1, self.LamGE_S )
                                                                                 self.diabatic_Ham[ (lab2, lab1 )] = self.diabatic_Ham[ (lab1, lab2 )]
                                                                         else:
                                                                             self.diabatic_Ham[ ( lab1, lab2 ) ]  = 0.e0
@@ -530,8 +585,7 @@ class GHam:
                                     if l == m:
                                         continue
                                     else:
-                                        if( ( ( abs( l - m ) == 1 ) ) or  \
-          ( self.Nchrom >= 3 and abs( l - m ) == self.Nchrom - 1 and self.CT_inter_periodic ) ):
+                                        if( self.is_neighbor(l, m, self.CT_inter_periodic ) ):
                                             if ( l1 + m1 > self.vibmax ):
                                                 continue
                                             else:
@@ -568,8 +622,7 @@ class GHam:
                                                     if l == m:
                                                         continue
                                                     else:
-                                                        if( ( ( abs( l - m ) == 1 ) ) or  \
-          ( self.Nchrom >= 3 and abs( l - m ) == self.Nchrom - 1 and self.CT_inter_periodic ) ):
+                                                        if( self.is_neighbor( l, m, self.CT_inter_periodic ) ):
                                                             if ( l1 + m1 > self.vibmax ):
                                                                 continue
                                                             else:
@@ -612,12 +665,11 @@ class GHam:
                                                             if (  l == m or m == n or l  == n ) :
                                                                 continue
                                                             else:
-                                                                if ( ( abs( l - m) == 1  ) or \
-                                    ( self.Nchrom >= 3 and abs( l - m) == self.Nchrom - 1 and self.CT_inter_periodic ) ):
+                                                                if ( self.is_neighbor( l, m, self.CT_inter_periodic ) ):
                                                                     if ( l1 + m1 + n1 + 1 > self.vibmax ):
                                                                         continue
                                                                     else:
-                                                                        if ( abs( l - n ) == 1 ) or (abs( m - n ) == 1 ): 
+                                                                        if ( self.is_neighbor( l, n , self.CT_inter_periodic) or self.is_neighbor( m, n , self.CT_inter_periodic) ): 
                                                                             num_CTv = Ham_IBS.order_CTv( l, l1, m, m1, n, n1 )
                                                                             lab2 = self.Index_CTv[num_CTv]
                                                                             if ( i == l and j== n and j1 == n1 ):
@@ -644,7 +696,7 @@ class GHam:
                                         if i1 + j1 + 1 + k1 + 1 > self.vibmax:
                                             continue
                                         else:
-                                            if ( ( abs( i - j ) == 1 ) or abs( i - k ) > 1 and abs( i - k ) != self.Nchrom - 1 ):
+                                            if ( self.is_neighbor(i, j, self.JCou_inter_periodic) or self.is_neighbor(i, k, self.JCou_inter_periodic) ):
                                                 num_3p = Ham_IBS.order_3p(  i, i1, j, j1, k, k1 )
                                                 lab1 = self.Index_tripple[ num_3p ]
                                                 for l in range( 0 , self.Nchrom ):
@@ -656,12 +708,11 @@ class GHam:
                                                                         if (  l == m or m == n or l  == n ) :
                                                                             continue
                                                                         else:
-                                                                            if ( ( abs( l - m) == 1  ) or \
-                                    ( self.Nchrom >= 3 and abs( l - m) == self.Nchrom - 1 and self.CT_inter_periodic ) ):
+                                                                            if ( self.is_neighbor( l, m, self.CT_inter_periodic ) ):
                                                                                 if ( l1 + m1 + n1 + 1 > self.vibmax ):
                                                                                     continue
                                                                                 else:
-                                                                                    if ( abs( l - n ) == 1 ) or (abs( m - n ) == 1 ): 
+                                                                                    if ( self.is_neighbor( l, n , self.CT_inter_periodic) or self.is_neighbor( m, n , self.CT_inter_periodic) ): 
                                                                                         num_CTv = Ham_IBS.order_CTv( l, l1, m, m1, n, n1 )
                                                                                         lab2 = self.Index_CTv[num_CTv]
                                                                                         if ( i == l ):
@@ -699,8 +750,7 @@ class GHam:
                             if i == j:
                                 continue
                             else:
-                                if( ( ( abs( i - j ) == 1 ) ) or  \
-          ( self.Nchrom >= 3 and abs( i - j ) == self.Nchrom - 1 and self.CT_inter_periodic ) ):
+                                if( self.is_neighbor( i, j, self.CT_inter_periodic ) ):
                                     if ( i1 + j1 > self.vibmax ):
                                         continue
                                     else:
@@ -713,8 +763,7 @@ class GHam:
                                                         if l >= m:
                                                             continue
                                                         else:
-                                                            if( ( ( abs( l - m ) == 1 ) ) or  \
-          ( self.Nchrom >= 3 and abs( l - m ) == self.Nchrom - 1 and self.CT_inter_periodic ) ):
+                                                            if( self.is_neighbor( l, m, self.CT_inter_periodic ) ):
                                                                 if ( l1 + m1 > self.vibmax ):
                                                                     continue
                                                                 else:
@@ -744,12 +793,11 @@ class GHam:
                                     if (  i == j or j == k or i  == k ) :
                                         continue
                                     else:
-                                        if ( ( abs( i - j) == 1  ) or \
-                                    ( self.Nchrom >= 3 and abs( i - j) == self.Nchrom - 1 and self.CT_inter_periodic ) ):
+                                        if ( self.is_neighbor( i, j, self.CT_inter_periodic ) ):
                                             if ( i1 + j1 + k1 + 1 > self.vibmax ):
                                                 continue
                                             else:
-                                                if ( abs( i - k ) == 1 ) or (abs( j - k ) == 1 ): 
+                                                if (  self.is_neighbor( i, k , self.CT_inter_periodic) or self.is_neighbor( j, k , self.CT_inter_periodic) ): 
                                                     num_CTv = Ham_IBS.order_CTv( i, i1, j, j1, k, k1 )
                                                     lab1 = self.Index_CTv[num_CTv]
                                                     for l in range( 0 , self.Nchrom ):
@@ -761,12 +809,11 @@ class GHam:
                                                                             if (  l >= m or m == n or l  == n ) :
                                                                                 continue
                                                                             else:
-                                                                                if ( ( abs( l - m) == 1  ) or \
-                                    ( self.Nchrom >= 3 and abs( l - m) == self.Nchrom - 1 and self.CT_inter_periodic ) ):
+                                                                                if ( self.is_neighbor( l, m, self.CT_inter_periodic ) ):
                                                                                     if ( l1 + m1 + n1 + 1 > self.vibmax ):
                                                                                         continue
                                                                                     else:
-                                                                                        if ( abs( l - n ) == 1 ) or (abs( m - n ) == 1 ): 
+                                                                                        if (  self.is_neighbor( l, n , self.CT_inter_periodic) or self.is_neighbor( m, n , self.CT_inter_periodic) ): 
                                                                                             num_TPv = Ham_IBS.order_TPv( l, l1, m, m1, n, n1 )
                                                                                             lab2 = self.Index_TPv[num_TPv]
                                                                                             if (  i == l and j == m and k == n and k1 == n1 ):

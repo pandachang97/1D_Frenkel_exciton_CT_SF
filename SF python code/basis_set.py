@@ -1,7 +1,7 @@
 import scipy
 import numpy as np
 import math
-from numba import njit
+#from numba import njit
 import json
 
 # I want to include disorder in the future. I just define Hamiltonian and its Eigenvalue
@@ -10,6 +10,7 @@ with open('parameters.json') as IBS_inp:
     parameters = json.load(IBS_inp)
 
 CT_inter_periodic = parameters["basis_set_options"]['CT_inter_periodic']
+JCou_inter_periodic = parameters["basis_set_options"]['JCou_inter_periodic']
 Nchrom = parameters['geometry_parameters']['Nchrom']
 vibmax = parameters['geometry_parameters']['vibmax']
 
@@ -18,6 +19,7 @@ class IBS:
         self.Nchrom = Nchrom
         self.vibmax = vibmax
         self.CT_inter_periodic = CT_inter_periodic
+        self.JCou_inter_periodic = JCou_inter_periodic
         self.kcount = 0
         self.Index_single = np.zeros( ( self.Nchrom * ( self.vibmax + 1 )) , dtype = np.int64 )
 
@@ -41,6 +43,16 @@ class IBS:
 
 #define a function to calculate the running label of 1 particle singlet array
     #@njit( fastmath=True)
+    def is_neighbor(self, a, b, periodic=True):
+        """True if sites a and b are nearest neighbors on the 1D chain,
+        including the periodic boundary when enabled.
+        """
+        if abs(a - b) == 1:
+            return True
+        if periodic and self.Nchrom > 2 and abs(a - b) == self.Nchrom - 1:
+            return True
+        return False
+
     def order_1p( self, i, i1 ):
         num_1p = ( i ) * ( self.vibmax + 1 ) + i1 
         return num_1p
@@ -81,11 +93,11 @@ class IBS:
 #define a function to calculate the running label of 3 particle singlet array
     #@njit(fastmath=True)
     def order_3p( self, i, i1,j, j1, k, k1 ):
-        num_3p =( i - 1 ) * ( self.vibmax + 1 ) * self.Nchrom * self.vibmax * self.Nchrom * self.vibmax + \
-               ( i1 - 1 ) * self.Nchrom * self.vibmax * self.Nchrom * self.vibmax + \
-               ( j - 1 ) * self.vibmax * self.Nchrom * self.vibmax + \
-               ( j1 - 1 ) * self.Nchrom * self.vibmax + \
-               ( k - 1 ) * self.vibmax + \
+        num_3p =( i  ) * ( self.vibmax + 1 ) * self.Nchrom * self.vibmax * self.Nchrom * self.vibmax + \
+               ( i1  ) * self.Nchrom * self.vibmax * self.Nchrom * self.vibmax + \
+               ( j ) * self.vibmax * self.Nchrom * self.vibmax + \
+               ( j1 ) * self.Nchrom * self.vibmax + \
+               ( k ) * self.vibmax + \
                k1
         return num_3p
 #Indexing 3p basis set below:
@@ -103,7 +115,7 @@ class IBS:
                                     if i1 + j1 + 1 + k1 + 1 > self.vibmax:
                                         continue
                                     else:
-                                        if ( ( abs( i - j ) == 1 ) or abs( i - k ) > 1 and abs( i - k ) != self.Nchrom - 1 ):
+                                        if ( self.is_neighbor(i, j, self.JCou_inter_periodic) or self.is_neighbor(i, k, self.JCou_inter_periodic) ):
                                             a = self.order_3p(  i, i1, j, j1, k, k1 )
                                             self.Index_tripple[ a ] = self.kcount
                                             self.kcount = self.kcount + 1
@@ -126,8 +138,7 @@ class IBS:
                         if i == j:
                             continue
                         else:
-                            if( ( ( abs( i - j ) == 1 ) ) or  \
-          ( self.Nchrom >= 3 and abs( i - j ) == self.Nchrom - 1 and self.CT_inter_periodic ) ):
+                            if(  self.is_neighbor(i, j, self.CT_inter_periodic )  ):
                                 if ( i1 + j1 > self.vibmax ):
                                     continue
                                 else:
@@ -138,11 +149,11 @@ class IBS:
 #define a function to calculate the running label of CTv array
     #@njit(fastmath=True)
     def order_CTv( self, i, i1, j, j1, k, k1 ):
-        num_CTv =( i - 1 ) * ( self.vibmax + 1 ) * self.Nchrom * ( self.vibmax + 1 ) * self.Nchrom * self.vibmax + \
-                 ( i1 - 1 ) * self.Nchrom * ( self.vibmax + 1 ) * self.Nchrom * self.vibmax + \
-                 ( j - 1 ) * ( self.vibmax + 1 ) *  self.Nchrom * self.vibmax + \
-                 ( j1 - 1 ) * self.Nchrom * self.vibmax + \
-                 ( k - 1 ) * self.vibmax + \
+        num_CTv =( i  ) * ( self.vibmax + 1 ) * self.Nchrom * ( self.vibmax + 1 ) * self.Nchrom * self.vibmax + \
+                 ( i1 ) * self.Nchrom * ( self.vibmax + 1 ) * self.Nchrom * self.vibmax + \
+                 ( j  ) * ( self.vibmax + 1 ) *  self.Nchrom * self.vibmax + \
+                 ( j1 ) * self.Nchrom * self.vibmax + \
+                 ( k  ) * self.vibmax + \
                  k1 
         return num_CTv
 #Indexing CTv basis set below:
@@ -157,12 +168,11 @@ class IBS:
                                 if (  i == j or j == k or i  == k ) :
                                     continue
                                 else:
-                                    if ( ( abs( i - j) == 1  ) or \
-                                    ( self.Nchrom >= 3 and abs( i - j) == self.Nchrom - 1 and self.CT_inter_periodic ) ):
+                                    if ( self.is_neighbor(i, j, self.CT_inter_periodic ) ):
                                         if ( i1 + j1 + k1 + 1 > self.vibmax ):
                                             continue
                                         else:
-                                            if ( abs( i - k ) == 1 ) or (abs( j - k ) == 1 ): 
+                                            if ( self.is_neighbor( i, k , self.CT_inter_periodic ) or self.is_neighbor( j, k , self.CT_inter_periodic ) ): 
                                                 a = self.order_CTv( i, i1, j, j1, k, k1 )
                                                 #print(f"a is {a}")
                                                 self.Index_CTv[ a ] = self.kcount
@@ -186,8 +196,7 @@ class IBS:
                         if i >= j:
                             continue
                         else:
-                            if( ( ( abs( i - j ) == 1 ) ) or  \
-                            ( self.Nchrom >= 3 and abs( i - j ) == self.Nchrom - 1 and self.CT_inter_periodic ) ):
+                            if(  self.is_neighbor( i, j, self.CT_inter_periodic ) ):
                                 if ( i1 + j1 > self.vibmax ):
                                     continue
                                 else:
@@ -198,11 +207,11 @@ class IBS:
 #define a function to calculate the running label of Triplet Pari with virbration array
     #@njit(fastmath=True)
     def order_TPv( self, i, i1, j, j1, k, k1 ):
-        num_TPv =( i - 1 ) * ( self.vibmax + 1 ) * self.Nchrom * ( self.vibmax + 1 ) * self.Nchrom * self.vibmax + \
-                 ( i1 - 1 ) * self.Nchrom * ( self.vibmax + 1 ) * self.Nchrom * self.vibmax + \
-                 ( j - 1 ) * ( self.vibmax + 1 ) *  self.Nchrom * self.vibmax + \
-                 ( j1 - 1 ) * self.Nchrom * self.vibmax + \
-                 ( k - 1 ) * self.vibmax + \
+        num_TPv =( i ) * ( self.vibmax + 1 ) * self.Nchrom * ( self.vibmax + 1 ) * self.Nchrom * self.vibmax + \
+                 ( i1 ) * self.Nchrom * ( self.vibmax + 1 ) * self.Nchrom * self.vibmax + \
+                 ( j ) * ( self.vibmax + 1 ) *  self.Nchrom * self.vibmax + \
+                 ( j1 ) * self.Nchrom * self.vibmax + \
+                 ( k ) * self.vibmax + \
                  k1 
         return num_TPv
 #Indexing Triplet Pari with virbration basis set below:
@@ -217,12 +226,11 @@ class IBS:
                                 if (  i >= j or j == k or i  == k ) :
                                     continue
                                 else:
-                                    if ( ( abs( i - j) == 1  ) or \
-                                    ( self.Nchrom >= 3 and abs( i - j) == self.Nchrom - 1 and self.CT_inter_periodic ) ):
+                                    if ( self.is_neighbor( i, j, self.CT_inter_periodic ) ):
                                         if ( i1 + j1 + k1 + 1 > self.vibmax ):
                                             continue
                                         else:
-                                            if ( abs( i - k ) == 1 ) or (abs( j - k ) == 1 ): 
+                                            if (self.is_neighbor( i, k , self.CT_inter_periodic ) or self.is_neighbor( j, k , self.CT_inter_periodic ) ): 
                                                 a = self.order_TPv( i, i1, j, j1, k, k1 )
                                                 #print(f"a is {a}")
                                                 self.Index_TPv[ a ] = self.kcount
