@@ -32,6 +32,8 @@ with open('parameters.json') as Ham_f:
     ESex_ref = parameters["Energy_setting"]['ESex_ref'] # singlet exciton energy in code
     K_exchange = parameters["Energy_setting"]['K_exchange']  #exchange energy, ETex_ref = ESex_ref + K_exchange (K<0 generally)
     JCou_inter = parameters["Energy_setting"]['JCou_inter']
+    JCou_long_range = parameters["basis_set_options"].get("JCou_long_range", False)
+    JCou_decay_power = parameters["Energy_setting"].get("JCou_decay_power", 1.0)
     te_inter_s = parameters["Energy_setting"]['te_inter_s']
     th_inter_s = parameters["Energy_setting"]['th_inter_s']
     te_inter_t = parameters["Energy_setting"]['te_inter_t']
@@ -69,6 +71,8 @@ class GHam:
         self.VMU_inter = VMU_inter
 
         self.JCou_inter = JCou_inter
+        self.JCou_long_range = JCou_long_range
+        self.JCou_decay_power = JCou_decay_power
         self.te_inter_t = te_inter_t
         self.th_inter_t = th_inter_t
         self.te_inter_s = te_inter_s
@@ -93,13 +97,13 @@ class GHam:
         return False
  
     def site_distance(self, i, j, periodic=False):
-        """Distance between chromophore indices in units of nearest-neighbor spacing.
+        """Distance between chromophores in units of nearest-neighbor spacing.
 
         If periodic=False:
-            distance = abs(i - j)
+            use open-chain distance abs(i-j).
 
         If periodic=True:
-            use the shortest distance around the ring.
+            use shortest ring distance, so sites 0 and N-1 are nearest neighbors.
         """
         if i == j:
             return 0
@@ -112,23 +116,37 @@ class GHam:
         return d
 
 
-    def calc_JCou(self, i, j, periodic=False, decay_power=1.0):
-        """Distance-dependent Coulombic Frenkel coupling.
+    def calc_JCou(self, i, j, periodic=None, long_range=None, decay_power=None):
+        """Frenkel Coulombic coupling between chromophores i and j.
 
-        For nearest neighbors:
-            distance = 1, so J = JCou_inter.
+        Default:
+            only nearest-neighbor coupling is kept.
 
-        For farther pairs:
-            J = JCou_inter / distance**decay_power.
-
-        decay_power = 1.0 gives J/R.
-        decay_power = 3.0 gives dipole-dipole-like J/R^3.
+        If long_range=True:
+            farther couplings are included as JCou_inter / r^decay_power.
         """
+        if periodic is None:
+            periodic = self.JCou_inter_periodic
+
+        if long_range is None:
+            long_range = self.JCou_long_range
+
+        if decay_power is None:
+            decay_power = self.JCou_decay_power
+
         d = self.site_distance(i, j, periodic=periodic)
 
         if d == 0:
             return 0.0
 
+        # Default behavior: nearest-neighbor only
+        if not long_range:
+            if d == 1:
+                return self.JCou_inter
+            else:
+                return 0.0
+
+        # Optional long-range behavior: J/r^p
         return self.JCou_inter / (d ** decay_power)
 
 
@@ -229,8 +247,8 @@ class GHam:
                         if ( lab1 == lab2 ): ##diagonal elements
                             self.diabatic_Ham[ ( lab1, lab2 ) ]  = self.ESex_ref + np.multiply( i1 , 1.0 , dtype=float )
                         else:  ##off-diagonal elements
-                            _tem_JCou =  self.calc_JCou( i, l, periodic=self.JCou_inter_periodic, decay_power=1.0)
-                            self.diabatic_Ham[ ( lab1, lab2 ) ]  = _tem_JCou * Ham_FCF.gen_FCF( 0, i1, self.LamGE_S ) * Ham_FCF.gen_FCF( 0, l1, self.LamGE_S )
+                            _tem_JCou = self.calc_JCou( i, l, periodic=self.JCou_inter_periodic, long_range=self.JCou_long_range, decay_power=self.JCou_decay_power )
+                            self.diabatic_Ham[ ( lab1, lab2 ) ]  = _tem_JCou * Ham_FCF.gen_FCF( 0, l1, self.LamGE_S ) * Ham_FCF.gen_FCF(0, l1, self.LamGE_S)
                             self.diabatic_Ham[ (lab2, lab1 )] = self.diabatic_Ham[ (lab1, lab2 )]
         #1.2, 2 particle block in singlet exciton
         if self.add_double:
@@ -259,14 +277,14 @@ class GHam:
                                                             num_2p = Ham_IBS.order_2p( l, l1, m, m1 )
                                                             lab2 = self.Index_double[num_2p]
                                                             if (lab1 == lab2): ## diagonal elements
-                                                                self.diabatic_Ham[ ( lab1, lab2 ) ]  =  self.ESex_ref + Sfactor * l1 + Sfactor * (m1 + 1)
+                                                                self.diabatic_Ham[ ( lab1, lab2 ) ]  =  self.ESex_ref + self.Sfactor * l1 + Sfactor * (m1 + 1)
                                                             else: ##off-diagonal elements
                                                                 if ( i == m and j == l ):
-                                                                    _tem_JCou =  self.calc_JCou( i, l, periodic=self.JCou_inter_periodic, decay_power=1.0)
+                                                                    _tem_JCou = self.calc_JCou( i, l, periodic=self.JCou_inter_periodic, long_range=self.JCou_long_range, decay_power=self.JCou_decay_power )
                                                                     self.diabatic_Ham[ (lab1, lab2 )] = _tem_JCou * Ham_FCF.gen_FCF( m1 + 1 , i1, self.LamGE_S ) * Ham_FCF.gen_FCF( j1 + 1, l1, self.LamGE_S )
                                                                     self.diabatic_Ham[ (lab2, lab1 )] = self.diabatic_Ham[ (lab1, lab2 )]
                                                                 elif ( j == m and j1 == m1 ):
-                                                                    _tem_JCou =  self.calc_JCou( i, l, periodic=self.JCou_inter_periodic, decay_power=1.0)
+                                                                    _tem_JCou = self.calc_JCou( i, l, periodic=self.JCou_inter_periodic, long_range=self.JCou_long_range, decay_power=self.JCou_decay_power )
                                                                     self.diabatic_Ham[ (lab1, lab2 )]  = _tem_JCou * Ham_FCF.gen_FCF( 0, i1 , self.LamGE_S ) * Ham_FCF.gen_FCF( 0, l1 , self.LamGE_S )
                                                                     self.diabatic_Ham[ (lab2, lab1 )] = self.diabatic_Ham[ (lab1, lab2 )]
                                                                 else:
@@ -306,31 +324,31 @@ class GHam:
                                                                                     num_3p = Ham_IBS.order_3p(  l, l1, m, m1, n, n1 )
                                                                                     lab2 = self.Index_tripple[ num_3p ]
                                                                                     if (lab1 == lab2): ## diagonal elements
-                                                                                        self.diabatic_Ham[ ( lab1, lab2 ) ]  = self.ESex_ref + Sfactor * l1 + Sfactor * (m1 + 1) + Sfactor * (n1 + 1)
+                                                                                        self.diabatic_Ham[ ( lab1, lab2 ) ]  = self.ESex_ref + self.Sfactor * l1 + self.Sfactor * (m1 + 1) + Sfactor * (n1 + 1)
                                                                                     else: #off-diagonal elements
                                                                                         if (i != l):
                                                                                             if (j == l and i == m and k == n and k1 == n1):
-                                                                                                _tem_JCou =  self.calc_JCou( i, l, periodic=self.JCou_inter_periodic, decay_power=1.0)
+                                                                                                _tem_JCou = self.calc_JCou( i, l, periodic=self.JCou_inter_periodic, long_range=self.JCou_long_range, decay_power=self.JCou_decay_power )
                                                                                                 self.diabatic_Ham[ (lab1, lab2 )] = _tem_JCou * Ham_FCF.gen_FCF( m1 + 1, i1, self.LamGE_S ) * Ham_FCF.gen_FCF( j1 +1, l1, self.LamGE_S )
                                                                                                 self.diabatic_Ham[ (lab2, lab1 )] = self.diabatic_Ham[ (lab1, lab2 )]
                                                                                             elif(j == l and i == n and k == m and m1 == k1):
-                                                                                                _tem_JCou =  self.calc_JCou( i, l, periodic=self.JCou_inter_periodic, decay_power=1.0)
+                                                                                                _tem_JCou = self.calc_JCou( i, l, periodic=self.JCou_inter_periodic, long_range=self.JCou_long_range, decay_power=self.JCou_decay_power )
                                                                                                 self.diabatic_Ham[ (lab1, lab2 )] = _tem_JCou * Ham_FCF.gen_FCF( n1 + 1, i1, self.LamGE_S ) * Ham_FCF.gen_FCF( j1 +1, l1, self.LamGE_S )
                                                                                                 self.diabatic_Ham[ (lab2, lab1 )] = self.diabatic_Ham[ (lab1, lab2 )]
                                                                                             elif(k == l and i == m and j == n and j1 == n1 ):
-                                                                                                _tem_JCou =  self.calc_JCou( i, l, periodic=self.JCou_inter_periodic, decay_power=1.0)
+                                                                                                _tem_JCou = self.calc_JCou( i, l, periodic=self.JCou_inter_periodic, long_range=self.JCou_long_range, decay_power=self.JCou_decay_power )
                                                                                                 self.diabatic_Ham[ (lab1, lab2 )] = _tem_JCou * Ham_FCF.gen_FCF( m1 + 1, i1, self.LamGE_S ) * Ham_FCF.gen_FCF( k1 +1, l1, self.LamGE_S )
                                                                                                 self.diabatic_Ham[ (lab2, lab1 )] = self.diabatic_Ham[ (lab1, lab2 )]
                                                                                             elif(k == l and i == n and j == m and j1 == m1):
-                                                                                                _tem_JCou =  self.calc_JCou( i, l, periodic=self.JCou_inter_periodic, decay_power=1.0)
+                                                                                                _tem_JCou = self.calc_JCou( i, l, periodic=self.JCou_inter_periodic, long_range=self.JCou_long_range, decay_power=self.JCou_decay_power )
                                                                                                 self.diabatic_Ham[ (lab1, lab2 )] = _tem_JCou * Ham_FCF.gen_FCF( n1 + 1, i1, self.LamGE_S ) * Ham_FCF.gen_FCF( k1 +1, l1, self.LamGE_S )
                                                                                                 self.diabatic_Ham[ (lab2, lab1 )] = self.diabatic_Ham[ (lab1, lab2 )]
                                                                                             elif(j == m and j1 == m1 and k == n and k1 == n1):
-                                                                                                _tem_JCou =  self.calc_JCou( i, l, periodic=self.JCou_inter_periodic, decay_power=1.0)
+                                                                                                _tem_JCou = self.calc_JCou( i, l, periodic=self.JCou_inter_periodic, long_range=self.JCou_long_range, decay_power=self.JCou_decay_power )
                                                                                                 self.diabatic_Ham[ (lab1, lab2 )] = _tem_JCou * Ham_FCF.gen_FCF( 0 , i1, self.LamGE_S ) * Ham_FCF.gen_FCF( 0 , l1, self.LamGE_S )
                                                                                                 self.diabatic_Ham[ (lab2, lab1 )] = self.diabatic_Ham[ (lab1, lab2 )]
                                                                                             elif( j == n and j1 == n1 and k == m and k1 == m1 ):
-                                                                                                _tem_JCou =  self.calc_JCou( i, l, periodic=self.JCou_inter_periodic, decay_power=1.0)
+                                                                                                _tem_JCou = self.calc_JCou( i, l, periodic=self.JCou_inter_periodic, long_range=self.JCou_long_range, decay_power=self.JCou_decay_power )
                                                                                                 self.diabatic_Ham[ (lab1, lab2 )] = _tem_JCou * Ham_FCF.gen_FCF( 0 , i1, self.LamGE_S ) * Ham_FCF.gen_FCF( 0 , l1, self.LamGE_S )
                                                                                                 self.diabatic_Ham[ (lab2, lab1 )] = self.diabatic_Ham[ (lab1, lab2 )]
                                                                                             else:
@@ -413,9 +431,9 @@ class GHam:
                                                                                             lab2 = self.Index_CTv[num_CTv]
                                                                                             if (lab1 == lab2):##diagonal elements
                                                                                                 if ( i < j ):
-                                                                                                    self.diabatic_Ham[ ( lab1, lab2 ) ]  = self.E_CT_PpPn + Sfactor * l1 + Sfactor * m1 + Sfactor * (n1 + 1)
+                                                                                                    self.diabatic_Ham[ ( lab1, lab2 ) ]  = self.E_CT_PpPn + self.Sfactor * l1 + Sfactor * m1 + Sfactor * (n1 + 1)
                                                                                                 elif( i > j ):
-                                                                                                    self.diabatic_Ham[ ( lab1, lab2 ) ]  = self.E_CT_PnPp + Sfactor * l1 + Sfactor * m1 + Sfactor * (n1 + 1) 
+                                                                                                    self.diabatic_Ham[ ( lab1, lab2 ) ]  = self.E_CT_PnPp + self.Sfactor * l1 + Sfactor * m1 + Sfactor * (n1 + 1) 
                                                                                             else: ##off-diagonal elements
                                                                                                 self.diabatic_Ham[ ( lab1, lab2 ) ]  = 0.e0
         else:
@@ -494,7 +512,7 @@ class GHam:
                                                                                                 num_TPv = Ham_IBS.order_TPv( l, l1, m, m1, n, n1 )
                                                                                                 lab2 = self.Index_TPv[num_TPv]
                                                                                                 if (lab1 == lab2):##diagonal elements
-                                                                                                    self.diabatic_Ham[(lab1, lab2)] = self.E_TP + Sfactor * l1 + Sfactor * m1 + Sfactor * (n1 + 1)
+                                                                                                    self.diabatic_Ham[(lab1, lab2)] = self.E_TP + self.Sfactor * l1 + Sfactor * m1 + Sfactor * (n1 + 1)
                                                                                                 else: ##off-diagonal elements
                                                                                                     self.diabatic_Ham[ ( lab1, lab2 ) ]  = 0.e0
                                                                                                     self.diabatic_Ham[ (lab2, lab1 )] = self.diabatic_Ham[ (lab1, lab2 )]
@@ -521,7 +539,7 @@ class GHam:
                                             num_2p = Ham_IBS.order_2p( l, l1, m, m1 )
                                             lab2 = self.Index_double[num_2p]
                                             if ( i == m ):
-                                                _tem_JCou =  self.calc_JCou( i, l, periodic=self.JCou_inter_periodic, decay_power=1.0)
+                                                _tem_JCou = self.calc_JCou( i, l, periodic=self.JCou_inter_periodic, long_range=self.JCou_long_range, decay_power=self.JCou_decay_power )
                                                 self.diabatic_Ham[ ( lab1, lab2 ) ]  = _tem_JCou * Ham_FCF.gen_FCF( m1 + 1 , i1, self.LamGE_S ) * Ham_FCF.gen_FCF( 0 , l1, self.LamGE_S )
                                                 self.diabatic_Ham[ (lab2, lab1 )] = self.diabatic_Ham[ (lab1, lab2 )]
                                             else:
@@ -561,11 +579,11 @@ class GHam:
                                                                         lab2 = self.Index_tripple[ num_3p ]
                                                                         if ( i != l):
                                                                             if ( i == m and j == n and j1== n1 ):
-                                                                                _tem_JCou =  self.calc_JCou( i, l, periodic=self.JCou_inter_periodic, decay_power=1.0)
+                                                                                _tem_JCou = self.calc_JCou( i, l, periodic=self.JCou_inter_periodic, long_range=self.JCou_long_range, decay_power=self.JCou_decay_power )
                                                                                 self.diabatic_Ham[ ( lab1, lab2 ) ]  =  _tem_JCou * Ham_FCF.gen_FCF( m1 + 1 , i1, self.LamGE_S ) * Ham_FCF.gen_FCF( 0 , l1, self.LamGE_S )
                                                                                 self.diabatic_Ham[ (lab2, lab1 )] = self.diabatic_Ham[ (lab1, lab2 )]
                                                                             elif( i == n and j == m and j1== m1 ):
-                                                                                _tem_JCou =  self.calc_JCou( i, l, periodic=self.JCou_inter_periodic, decay_power=1.0)
+                                                                                _tem_JCou = self.calc_JCou( i, l, periodic=self.JCou_inter_periodic, long_range=self.JCou_long_range, decay_power=self.JCou_decay_power )
                                                                                 self.diabatic_Ham[ ( lab1, lab2 ) ]  =  _tem_JCou * Ham_FCF.gen_FCF( n1 + 1 , i1, self.LamGE_S ) * Ham_FCF.gen_FCF( 0 , l1, self.LamGE_S )
                                                                                 self.diabatic_Ham[ (lab2, lab1 )] = self.diabatic_Ham[ (lab1, lab2 )]
                                                                         else:
